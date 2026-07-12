@@ -9,22 +9,33 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.energy_sharing.diagnostics import (
     async_get_config_entry_diagnostics,
 )
+from tests.conftest import set_cumulative_sources
 
 
 @freeze_time("2026-07-12 15:00:10+02:00")
-async def test_diagnostics_contains_reconciliation_information(
-    hass: HomeAssistant, setup_integration: MockConfigEntry
+async def test_diagnostics_include_snapshots_and_modes(
+    hass: HomeAssistant,
+    setup_export_and_percentage: MockConfigEntry,
+    receiver_import_total_entity: str,
+    shared_energy_total_entity: str,
+    provider_export_total_entity: str,
 ) -> None:
-    """Test diagnostics include reconciliation information."""
-    entry = setup_integration
+    entry = setup_export_and_percentage
     manager = entry.runtime_data.manager
+    await manager.async_process_now()
+    set_cumulative_sources(
+        hass,
+        receiver_import_total_entity=receiver_import_total_entity,
+        shared_energy_total_entity=shared_energy_total_entity,
+        receiver_total=101.0,
+        shared_total=10.7,
+        provider_export_total_entity=provider_export_total_entity,
+        provider_total=210.0,
+    )
     await manager.async_process_now()
 
     result = await async_get_config_entry_diagnostics(hass, entry)
-    assert "entry" in result
-    assert "runtime" in result
-    assert "reconciliation" in result
-    assert result["runtime"]["processed_intervals"] == 1
-    assert result["entry"]["data"]["provider_export_source"] == "**REDACTED**"
+    assert result["runtime"]["operating_mode"] == "export_and_percentage"
+    assert result["runtime"]["previous_snapshot"] is not None
     assert result["runtime"]["last_interval"] is not None
-    assert result["reconciliation"]["status"] == "not_configured"
+    assert result["entry"]["data"]["receiver_import_total_source"] == "**REDACTED**"

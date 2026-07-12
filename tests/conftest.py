@@ -14,25 +14,23 @@ from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.energy_sharing.const import (
-    CONF_ALLOCATION_PERCENTAGE_MODE,
-    CONF_ALLOCATION_PERCENTAGE_SOURCE,
     CONF_FIXED_ALLOCATION_PERCENTAGE,
     CONF_INTERVAL_MINUTES,
     CONF_MAX_WAIT,
     CONF_PROCESSING_DELAY,
-    CONF_PROVIDER_EXPORT_SOURCE,
-    CONF_RECEIVER_IMPORT_SOURCE,
-    CONF_RESET_TOLERANCE,
+    CONF_PROVIDER_EXPORT_TOTAL_SOURCE,
+    CONF_RECEIVER_IMPORT_TOTAL_SOURCE,
     CONF_RETRY_INTERVAL,
+    CONF_SHARED_ENERGY_TOTAL_SOURCE,
+    CONF_SOURCE_FRESHNESS_TOLERANCE,
     CONFIG_ENTRY_VERSION,
     DEFAULT_FIXED_ALLOCATION_PERCENTAGE,
     DEFAULT_INTERVAL_MINUTES,
     DEFAULT_MAX_WAIT,
     DEFAULT_PROCESSING_DELAY,
-    DEFAULT_RESET_TOLERANCE,
     DEFAULT_RETRY_INTERVAL,
+    DEFAULT_SOURCE_FRESHNESS_TOLERANCE,
     DOMAIN,
-    PERCENTAGE_MODE_ENTITY,
 )
 
 pytest_plugins = "pytest_homeassistant_custom_component"
@@ -47,13 +45,11 @@ def auto_enable_custom_integrations(
 
 @pytest.fixture(autouse=True)
 def set_ljubljana_timezone(hass: HomeAssistant) -> None:
-    """Use the expected settlement timezone in tests."""
     hass.config.time_zone = "Europe/Ljubljana"
 
 
 @pytest.fixture(autouse=True)
 def disable_scheduler(set_ljubljana_timezone: None) -> Generator[None]:
-    """Disable automatic scheduling during tests."""
     with patch(
         "custom_components.energy_sharing.manager.EnergySharingManager._schedule_next_processing"
     ):
@@ -61,170 +57,191 @@ def disable_scheduler(set_ljubljana_timezone: None) -> Generator[None]:
 
 
 @pytest.fixture
-def provider_export_entity() -> str:
-    """Return a test provider export entity ID."""
-    return "sensor.test_provider_export_15min"
+def receiver_import_total_entity() -> str:
+    return "sensor.test_receiver_import_total"
 
 
 @pytest.fixture
-def receiver_import_entity() -> str:
-    """Return a test receiver import entity ID."""
-    return "sensor.test_receiver_import_15min"
+def shared_energy_total_entity() -> str:
+    return "sensor.test_shared_energy_total"
 
 
 @pytest.fixture
-def reported_allocation_entity() -> str:
-    """Return a test reported allocation entity ID."""
-    return "sensor.test_reported_allocation_15min"
-
-
-@pytest.fixture
-def percentage_entity() -> str:
-    """Return a test percentage entity ID."""
-    return "input_number.test_share_percentage"
-
-
-def make_utility_meter_state(
-    entity_id: str,
-    last_period: float,
-    last_reset: datetime,
-    unit: str = UnitOfEnergy.KILO_WATT_HOUR,
-) -> dict[str, Any]:
-    """Build utility meter state attributes."""
-    return {
-        "entity_id": entity_id,
-        "state": "0",
-        "attributes": {
-            "last_period": last_period,
-            "last_reset": last_reset.isoformat(),
-            "unit_of_measurement": unit,
-        },
-    }
-
-
-def make_percentage_state(entity_id: str, value: float) -> dict[str, Any]:
-    """Build a percentage entity state."""
-    return {
-        "entity_id": entity_id,
-        "state": str(value),
-        "attributes": {"unit_of_measurement": "%"},
-    }
+def provider_export_total_entity() -> str:
+    return "sensor.test_provider_export_total"
 
 
 @pytest.fixture
 def interval_end() -> datetime:
-    """Return a standard completed interval end timestamp."""
     return datetime(
         2026, 7, 12, 15, 0, 0, tzinfo=dt_util.get_time_zone("Europe/Ljubljana")
     )
 
 
+def cumulative_state(
+    entity_id: str,
+    total: float,
+    unit: str = UnitOfEnergy.KILO_WATT_HOUR,
+    *,
+    last_updated: datetime | None = None,
+) -> dict[str, Any]:
+    attrs = {"unit_of_measurement": unit}
+    return {
+        "entity_id": entity_id,
+        "state": str(total),
+        "attributes": attrs,
+        "last_updated": last_updated,
+    }
+
+
+def set_cumulative_sources(
+    hass: HomeAssistant,
+    *,
+    receiver_import_total_entity: str,
+    shared_energy_total_entity: str,
+    receiver_total: float,
+    shared_total: float,
+    provider_export_total_entity: str | None = None,
+    provider_total: float | None = None,
+    unit: str = UnitOfEnergy.KILO_WATT_HOUR,
+    last_updated: datetime | None = None,
+) -> None:
+    hass.states.async_set(
+        receiver_import_total_entity,
+        str(receiver_total),
+        attributes={"unit_of_measurement": unit},
+    )
+    hass.states.async_set(
+        shared_energy_total_entity,
+        str(shared_total),
+        attributes={"unit_of_measurement": unit},
+    )
+    if provider_export_total_entity is not None and provider_total is not None:
+        hass.states.async_set(
+            provider_export_total_entity,
+            str(provider_total),
+            attributes={"unit_of_measurement": unit},
+        )
+
+
 @pytest.fixture
-def mock_config_entry(
-    provider_export_entity: str,
-    receiver_import_entity: str,
-    percentage_entity: str,
+def mock_config_entry_percentage_only(
+    receiver_import_total_entity: str,
+    shared_energy_total_entity: str,
 ) -> MockConfigEntry:
-    """Create a mock config entry."""
     return MockConfigEntry(
         version=CONFIG_ENTRY_VERSION,
         domain=DOMAIN,
         title="Energy Sharing",
         data={
-            CONF_PROVIDER_EXPORT_SOURCE: provider_export_entity,
-            CONF_RECEIVER_IMPORT_SOURCE: receiver_import_entity,
+            CONF_RECEIVER_IMPORT_TOTAL_SOURCE: receiver_import_total_entity,
+            CONF_SHARED_ENERGY_TOTAL_SOURCE: shared_energy_total_entity,
         },
         options={
-            CONF_ALLOCATION_PERCENTAGE_MODE: PERCENTAGE_MODE_ENTITY,
-            CONF_ALLOCATION_PERCENTAGE_SOURCE: percentage_entity,
+            CONF_FIXED_ALLOCATION_PERCENTAGE: DEFAULT_FIXED_ALLOCATION_PERCENTAGE,
             CONF_INTERVAL_MINUTES: DEFAULT_INTERVAL_MINUTES,
             CONF_PROCESSING_DELAY: DEFAULT_PROCESSING_DELAY,
             CONF_MAX_WAIT: DEFAULT_MAX_WAIT,
             CONF_RETRY_INTERVAL: DEFAULT_RETRY_INTERVAL,
-            CONF_RESET_TOLERANCE: DEFAULT_RESET_TOLERANCE,
-            CONF_FIXED_ALLOCATION_PERCENTAGE: DEFAULT_FIXED_ALLOCATION_PERCENTAGE,
-            "allow_percentage_above_100": False,
+            CONF_SOURCE_FRESHNESS_TOLERANCE: DEFAULT_SOURCE_FRESHNESS_TOLERANCE,
         },
-        unique_id=f"{provider_export_entity}|{receiver_import_entity}",
+        unique_id=f"{receiver_import_total_entity}|{shared_energy_total_entity}",
     )
 
 
 @pytest.fixture
-async def setup_integration(
-    hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    provider_export_entity: str,
-    receiver_import_entity: str,
-    percentage_entity: str,
-    interval_end: datetime,
+def mock_config_entry_export_only(
+    receiver_import_total_entity: str,
+    shared_energy_total_entity: str,
+    provider_export_total_entity: str,
 ) -> MockConfigEntry:
-    """Set up the integration with default source entities."""
-    hass.states.async_set(
-        provider_export_entity,
-        "0",
-        attributes={
-            "last_period": 10.0,
-            "last_reset": interval_end.isoformat(),
-            "unit_of_measurement": UnitOfEnergy.KILO_WATT_HOUR,
+    return MockConfigEntry(
+        version=CONFIG_ENTRY_VERSION,
+        domain=DOMAIN,
+        title="Energy Sharing",
+        data={
+            CONF_RECEIVER_IMPORT_TOTAL_SOURCE: receiver_import_total_entity,
+            CONF_SHARED_ENERGY_TOTAL_SOURCE: shared_energy_total_entity,
         },
-    )
-    hass.states.async_set(
-        receiver_import_entity,
-        "0",
-        attributes={
-            "last_period": 1.0,
-            "last_reset": interval_end.isoformat(),
-            "unit_of_measurement": UnitOfEnergy.KILO_WATT_HOUR,
+        options={
+            CONF_PROVIDER_EXPORT_TOTAL_SOURCE: provider_export_total_entity,
+            CONF_INTERVAL_MINUTES: DEFAULT_INTERVAL_MINUTES,
+            CONF_PROCESSING_DELAY: DEFAULT_PROCESSING_DELAY,
+            CONF_MAX_WAIT: DEFAULT_MAX_WAIT,
+            CONF_RETRY_INTERVAL: DEFAULT_RETRY_INTERVAL,
+            CONF_SOURCE_FRESHNESS_TOLERANCE: DEFAULT_SOURCE_FRESHNESS_TOLERANCE,
         },
-    )
-    hass.states.async_set(
-        percentage_entity, "7", attributes={"unit_of_measurement": "%"}
+        unique_id=f"{receiver_import_total_entity}|{shared_energy_total_entity}",
     )
 
-    mock_config_entry.add_to_hass(hass)
-    await hass.config_entries.async_setup(mock_config_entry.entry_id)
-    await hass.async_block_till_done()
-    return mock_config_entry
+
+@pytest.fixture
+def mock_config_entry_export_and_percentage(
+    receiver_import_total_entity: str,
+    shared_energy_total_entity: str,
+    provider_export_total_entity: str,
+) -> MockConfigEntry:
+    return MockConfigEntry(
+        version=CONFIG_ENTRY_VERSION,
+        domain=DOMAIN,
+        title="Energy Sharing",
+        data={
+            CONF_RECEIVER_IMPORT_TOTAL_SOURCE: receiver_import_total_entity,
+            CONF_SHARED_ENERGY_TOTAL_SOURCE: shared_energy_total_entity,
+        },
+        options={
+            CONF_PROVIDER_EXPORT_TOTAL_SOURCE: provider_export_total_entity,
+            CONF_FIXED_ALLOCATION_PERCENTAGE: DEFAULT_FIXED_ALLOCATION_PERCENTAGE,
+            CONF_INTERVAL_MINUTES: DEFAULT_INTERVAL_MINUTES,
+            CONF_PROCESSING_DELAY: DEFAULT_PROCESSING_DELAY,
+            CONF_MAX_WAIT: DEFAULT_MAX_WAIT,
+            CONF_RETRY_INTERVAL: DEFAULT_RETRY_INTERVAL,
+            CONF_SOURCE_FRESHNESS_TOLERANCE: DEFAULT_SOURCE_FRESHNESS_TOLERANCE,
+        },
+        unique_id=f"{receiver_import_total_entity}|{shared_energy_total_entity}",
+    )
 
 
-def set_interval_sources(
+@pytest.fixture
+async def setup_percentage_only(
     hass: HomeAssistant,
-    *,
-    provider_export_entity: str,
-    receiver_import_entity: str,
-    interval_end: datetime,
-    provider_export_kwh: float = 10.0,
-    receiver_import_kwh: float = 1.0,
-    reported_allocation_entity: str | None = None,
-    reported_allocated_kwh: float | None = None,
-    unit: str = UnitOfEnergy.KILO_WATT_HOUR,
-) -> None:
-    """Set synchronized interval source entity states."""
-    hass.states.async_set(
-        provider_export_entity,
-        "0",
-        attributes={
-            "last_period": provider_export_kwh,
-            "last_reset": interval_end.isoformat(),
-            "unit_of_measurement": unit,
-        },
+    mock_config_entry_percentage_only: MockConfigEntry,
+    receiver_import_total_entity: str,
+    shared_energy_total_entity: str,
+) -> MockConfigEntry:
+    set_cumulative_sources(
+        hass,
+        receiver_import_total_entity=receiver_import_total_entity,
+        shared_energy_total_entity=shared_energy_total_entity,
+        receiver_total=100.0,
+        shared_total=10.0,
     )
-    hass.states.async_set(
-        receiver_import_entity,
-        "0",
-        attributes={
-            "last_period": receiver_import_kwh,
-            "last_reset": interval_end.isoformat(),
-            "unit_of_measurement": unit,
-        },
+    mock_config_entry_percentage_only.add_to_hass(hass)
+    await hass.config_entries.async_setup(mock_config_entry_percentage_only.entry_id)
+    await hass.async_block_till_done()
+    return mock_config_entry_percentage_only
+
+
+@pytest.fixture
+async def setup_export_and_percentage(
+    hass: HomeAssistant,
+    mock_config_entry_export_and_percentage: MockConfigEntry,
+    receiver_import_total_entity: str,
+    shared_energy_total_entity: str,
+    provider_export_total_entity: str,
+) -> MockConfigEntry:
+    set_cumulative_sources(
+        hass,
+        receiver_import_total_entity=receiver_import_total_entity,
+        shared_energy_total_entity=shared_energy_total_entity,
+        receiver_total=100.0,
+        shared_total=10.0,
+        provider_export_total_entity=provider_export_total_entity,
+        provider_total=200.0,
     )
-    if reported_allocation_entity is not None and reported_allocated_kwh is not None:
-        hass.states.async_set(
-            reported_allocation_entity,
-            "0",
-            attributes={
-                "last_period": reported_allocated_kwh,
-                "last_reset": interval_end.isoformat(),
-                "unit_of_measurement": unit,
-            },
-        )
+    mock_config_entry_export_and_percentage.add_to_hass(hass)
+    await hass.config_entries.async_setup(
+        mock_config_entry_export_and_percentage.entry_id
+    )
+    await hass.async_block_till_done()
+    return mock_config_entry_export_and_percentage
