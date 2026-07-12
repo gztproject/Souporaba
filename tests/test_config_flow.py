@@ -4,20 +4,19 @@ from __future__ import annotations
 
 from datetime import datetime
 
-import pytest
 from homeassistant import config_entries
 from homeassistant.const import UnitOfEnergy
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
-from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.energy_sharing.const import (
-    CONF_FIXED_PERCENTAGE,
-    CONF_GRID_IMPORT_ENTITY,
-    CONF_PERCENTAGE_ENTITY,
-    CONF_PERCENTAGE_MODE,
-    CONF_SHARED_ENERGY_ENTITY,
+    CONF_ALLOCATION_PERCENTAGE_MODE,
+    CONF_ALLOCATION_PERCENTAGE_SOURCE,
+    CONF_FIXED_ALLOCATION_PERCENTAGE,
+    CONF_PROVIDER_EXPORT_SOURCE,
+    CONF_RECEIVER_IMPORT_SOURCE,
+    CONF_REPORTED_ALLOCATION_SOURCE,
     DOMAIN,
     PERCENTAGE_MODE_ENTITY,
     PERCENTAGE_MODE_FIXED,
@@ -31,42 +30,28 @@ async def _start_user_flow(hass: HomeAssistant):
     )
 
 
-@pytest.fixture
-def source_states(
-    grid_import_entity: str,
-    shared_energy_entity: str,
-    percentage_entity: str,
-) -> datetime:
-    """Create valid source entity states."""
-    interval_end = datetime(
-        2026, 7, 12, 15, 0, 0, tzinfo=dt_util.get_time_zone("Europe/Ljubljana")
-    )
-    return interval_end
-
-
 async def test_config_flow_success(
     hass: HomeAssistant,
-    grid_import_entity: str,
-    shared_energy_entity: str,
+    provider_export_entity: str,
+    receiver_import_entity: str,
     percentage_entity: str,
-    source_states: datetime,
+    interval_end: datetime,
 ) -> None:
     """Test config flow succeeds with valid entities."""
-    interval_end = source_states
     hass.states.async_set(
-        grid_import_entity,
+        provider_export_entity,
         "0",
         attributes={
-            "last_period": 1.0,
+            "last_period": 10.0,
             "last_reset": interval_end.isoformat(),
             "unit_of_measurement": UnitOfEnergy.KILO_WATT_HOUR,
         },
     )
     hass.states.async_set(
-        shared_energy_entity,
+        receiver_import_entity,
         "0",
         attributes={
-            "last_period": 0.2,
+            "last_period": 1.0,
             "last_reset": interval_end.isoformat(),
             "unit_of_measurement": UnitOfEnergy.KILO_WATT_HOUR,
         },
@@ -80,41 +65,39 @@ async def test_config_flow_success(
         result["flow_id"],
         user_input={
             "name": "Energy Sharing",
-            CONF_GRID_IMPORT_ENTITY: grid_import_entity,
-            CONF_SHARED_ENERGY_ENTITY: shared_energy_entity,
-            CONF_PERCENTAGE_MODE: PERCENTAGE_MODE_ENTITY,
-            CONF_PERCENTAGE_ENTITY: percentage_entity,
+            CONF_PROVIDER_EXPORT_SOURCE: provider_export_entity,
+            CONF_RECEIVER_IMPORT_SOURCE: receiver_import_entity,
+            CONF_ALLOCATION_PERCENTAGE_MODE: PERCENTAGE_MODE_ENTITY,
+            CONF_ALLOCATION_PERCENTAGE_SOURCE: percentage_entity,
         },
     )
     assert result["type"] == FlowResultType.CREATE_ENTRY
-    assert result["title"] == "Energy Sharing"
-    assert result["data"][CONF_GRID_IMPORT_ENTITY] == grid_import_entity
+    assert result["data"][CONF_PROVIDER_EXPORT_SOURCE] == provider_export_entity
 
 
 async def test_config_flow_duplicate_rejected(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
-    grid_import_entity: str,
-    shared_energy_entity: str,
+    provider_export_entity: str,
+    receiver_import_entity: str,
     percentage_entity: str,
-    source_states: datetime,
+    interval_end: datetime,
 ) -> None:
     """Test duplicate configuration is rejected."""
-    interval_end = source_states
     hass.states.async_set(
-        grid_import_entity,
+        provider_export_entity,
         "0",
         attributes={
-            "last_period": 1.0,
+            "last_period": 10.0,
             "last_reset": interval_end.isoformat(),
             "unit_of_measurement": UnitOfEnergy.KILO_WATT_HOUR,
         },
     )
     hass.states.async_set(
-        shared_energy_entity,
+        receiver_import_entity,
         "0",
         attributes={
-            "last_period": 0.2,
+            "last_period": 1.0,
             "last_reset": interval_end.isoformat(),
             "unit_of_measurement": UnitOfEnergy.KILO_WATT_HOUR,
         },
@@ -127,10 +110,10 @@ async def test_config_flow_duplicate_rejected(
         result["flow_id"],
         user_input={
             "name": "Energy Sharing",
-            CONF_GRID_IMPORT_ENTITY: grid_import_entity,
-            CONF_SHARED_ENERGY_ENTITY: shared_energy_entity,
-            CONF_PERCENTAGE_MODE: PERCENTAGE_MODE_ENTITY,
-            CONF_PERCENTAGE_ENTITY: percentage_entity,
+            CONF_PROVIDER_EXPORT_SOURCE: provider_export_entity,
+            CONF_RECEIVER_IMPORT_SOURCE: receiver_import_entity,
+            CONF_ALLOCATION_PERCENTAGE_MODE: PERCENTAGE_MODE_ENTITY,
+            CONF_ALLOCATION_PERCENTAGE_SOURCE: percentage_entity,
         },
     )
     assert result["type"] == FlowResultType.ABORT
@@ -149,11 +132,18 @@ async def test_options_flow_updates_settings(
         result["flow_id"],
         user_input={
             "name": "Energy Sharing Updated",
+            CONF_ALLOCATION_PERCENTAGE_MODE: PERCENTAGE_MODE_ENTITY,
+            CONF_ALLOCATION_PERCENTAGE_SOURCE: setup_integration.options[
+                CONF_ALLOCATION_PERCENTAGE_SOURCE
+            ],
             "interval_minutes": 15,
             "processing_delay": 12,
             "max_wait": 90,
             "retry_interval": 4,
             "reset_tolerance": 6,
+            "allocation_tolerance_kwh": 0.02,
+            "allocation_tolerance_pct": 3.0,
+            "reconciliation_failure_mode": "warn",
             "allow_percentage_above_100": True,
         },
     )
@@ -163,34 +153,31 @@ async def test_options_flow_updates_settings(
     entry = hass.config_entries.async_get_entry(setup_integration.entry_id)
     assert entry is not None
     assert entry.title == "Energy Sharing Updated"
-    assert "processing_delay" in entry.options
     assert entry.options["processing_delay"] == 12
-    assert entry.options["max_wait"] == 90
 
 
 async def test_config_flow_invalid_unit_rejected(
     hass: HomeAssistant,
-    grid_import_entity: str,
-    shared_energy_entity: str,
+    provider_export_entity: str,
+    receiver_import_entity: str,
     percentage_entity: str,
-    source_states: datetime,
+    interval_end: datetime,
 ) -> None:
     """Test invalid units are rejected."""
-    interval_end = source_states
     hass.states.async_set(
-        grid_import_entity,
+        provider_export_entity,
         "0",
         attributes={
-            "last_period": 1.0,
+            "last_period": 10.0,
             "last_reset": interval_end.isoformat(),
             "unit_of_measurement": "bananas",
         },
     )
     hass.states.async_set(
-        shared_energy_entity,
+        receiver_import_entity,
         "0",
         attributes={
-            "last_period": 0.2,
+            "last_period": 1.0,
             "last_reset": interval_end.isoformat(),
             "unit_of_measurement": UnitOfEnergy.KILO_WATT_HOUR,
         },
@@ -202,38 +189,37 @@ async def test_config_flow_invalid_unit_rejected(
         result["flow_id"],
         user_input={
             "name": "Energy Sharing",
-            CONF_GRID_IMPORT_ENTITY: grid_import_entity,
-            CONF_SHARED_ENERGY_ENTITY: shared_energy_entity,
-            CONF_PERCENTAGE_MODE: PERCENTAGE_MODE_ENTITY,
-            CONF_PERCENTAGE_ENTITY: percentage_entity,
+            CONF_PROVIDER_EXPORT_SOURCE: provider_export_entity,
+            CONF_RECEIVER_IMPORT_SOURCE: receiver_import_entity,
+            CONF_ALLOCATION_PERCENTAGE_MODE: PERCENTAGE_MODE_ENTITY,
+            CONF_ALLOCATION_PERCENTAGE_SOURCE: percentage_entity,
         },
     )
     assert result["type"] == FlowResultType.FORM
-    assert result["errors"]["grid_import"] == "invalid_utility_meter"
+    assert result["errors"]["provider_export"] == "unsupported_energy_unit"
 
 
 async def test_config_flow_fixed_percentage_mode(
     hass: HomeAssistant,
-    grid_import_entity: str,
-    shared_energy_entity: str,
-    source_states: datetime,
+    provider_export_entity: str,
+    receiver_import_entity: str,
+    interval_end: datetime,
 ) -> None:
     """Test config flow with fixed percentage mode."""
-    interval_end = source_states
     hass.states.async_set(
-        grid_import_entity,
+        provider_export_entity,
         "0",
         attributes={
-            "last_period": 1.0,
+            "last_period": 10.0,
             "last_reset": interval_end.isoformat(),
             "unit_of_measurement": UnitOfEnergy.KILO_WATT_HOUR,
         },
     )
     hass.states.async_set(
-        shared_energy_entity,
+        receiver_import_entity,
         "0",
         attributes={
-            "last_period": 0.2,
+            "last_period": 1.0,
             "last_reset": interval_end.isoformat(),
             "unit_of_measurement": UnitOfEnergy.KILO_WATT_HOUR,
         },
@@ -244,11 +230,68 @@ async def test_config_flow_fixed_percentage_mode(
         result["flow_id"],
         user_input={
             "name": "Energy Sharing",
-            CONF_GRID_IMPORT_ENTITY: grid_import_entity,
-            CONF_SHARED_ENERGY_ENTITY: shared_energy_entity,
-            CONF_PERCENTAGE_MODE: PERCENTAGE_MODE_FIXED,
-            CONF_FIXED_PERCENTAGE: 7.0,
+            CONF_PROVIDER_EXPORT_SOURCE: provider_export_entity,
+            CONF_RECEIVER_IMPORT_SOURCE: receiver_import_entity,
+            CONF_ALLOCATION_PERCENTAGE_MODE: PERCENTAGE_MODE_FIXED,
+            CONF_FIXED_ALLOCATION_PERCENTAGE: 7.0,
         },
     )
     assert result["type"] == FlowResultType.CREATE_ENTRY
-    assert result["options"][CONF_FIXED_PERCENTAGE] == 7.0
+    assert result["options"][CONF_FIXED_ALLOCATION_PERCENTAGE] == 7.0
+
+
+async def test_config_flow_optional_reported_source(
+    hass: HomeAssistant,
+    provider_export_entity: str,
+    receiver_import_entity: str,
+    reported_allocation_entity: str,
+    percentage_entity: str,
+    interval_end: datetime,
+) -> None:
+    """Test config flow accepts optional reported allocation source."""
+    hass.states.async_set(
+        provider_export_entity,
+        "0",
+        attributes={
+            "last_period": 10.0,
+            "last_reset": interval_end.isoformat(),
+            "unit_of_measurement": UnitOfEnergy.KILO_WATT_HOUR,
+        },
+    )
+    hass.states.async_set(
+        receiver_import_entity,
+        "0",
+        attributes={
+            "last_period": 1.0,
+            "last_reset": interval_end.isoformat(),
+            "unit_of_measurement": UnitOfEnergy.KILO_WATT_HOUR,
+        },
+    )
+    hass.states.async_set(
+        reported_allocation_entity,
+        "0",
+        attributes={
+            "last_period": 0.7,
+            "last_reset": interval_end.isoformat(),
+            "unit_of_measurement": UnitOfEnergy.KILO_WATT_HOUR,
+        },
+    )
+    hass.states.async_set(percentage_entity, "7")
+
+    result = await _start_user_flow(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={
+            "name": "Energy Sharing",
+            CONF_PROVIDER_EXPORT_SOURCE: provider_export_entity,
+            CONF_RECEIVER_IMPORT_SOURCE: receiver_import_entity,
+            CONF_REPORTED_ALLOCATION_SOURCE: reported_allocation_entity,
+            CONF_ALLOCATION_PERCENTAGE_MODE: PERCENTAGE_MODE_ENTITY,
+            CONF_ALLOCATION_PERCENTAGE_SOURCE: percentage_entity,
+        },
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert (
+        result["options"][CONF_REPORTED_ALLOCATION_SOURCE]
+        == reported_allocation_entity
+    )

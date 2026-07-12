@@ -14,17 +14,18 @@ from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.energy_sharing.const import (
-    CONF_FIXED_PERCENTAGE,
-    CONF_GRID_IMPORT_ENTITY,
+    CONF_ALLOCATION_PERCENTAGE_MODE,
+    CONF_ALLOCATION_PERCENTAGE_SOURCE,
+    CONF_FIXED_ALLOCATION_PERCENTAGE,
     CONF_INTERVAL_MINUTES,
     CONF_MAX_WAIT,
-    CONF_PERCENTAGE_ENTITY,
-    CONF_PERCENTAGE_MODE,
     CONF_PROCESSING_DELAY,
+    CONF_PROVIDER_EXPORT_SOURCE,
+    CONF_RECEIVER_IMPORT_SOURCE,
     CONF_RESET_TOLERANCE,
     CONF_RETRY_INTERVAL,
-    CONF_SHARED_ENERGY_ENTITY,
-    DEFAULT_FIXED_PERCENTAGE,
+    CONFIG_ENTRY_VERSION,
+    DEFAULT_FIXED_ALLOCATION_PERCENTAGE,
     DEFAULT_INTERVAL_MINUTES,
     DEFAULT_MAX_WAIT,
     DEFAULT_PROCESSING_DELAY,
@@ -60,15 +61,21 @@ def disable_scheduler(set_ljubljana_timezone: None) -> Generator[None]:
 
 
 @pytest.fixture
-def grid_import_entity() -> str:
-    """Return a test grid import entity ID."""
-    return "sensor.test_grid_import_15min"
+def provider_export_entity() -> str:
+    """Return a test provider export entity ID."""
+    return "sensor.test_provider_export_15min"
 
 
 @pytest.fixture
-def shared_energy_entity() -> str:
-    """Return a test shared energy entity ID."""
-    return "sensor.test_shared_energy_15min"
+def receiver_import_entity() -> str:
+    """Return a test receiver import entity ID."""
+    return "sensor.test_receiver_import_15min"
+
+
+@pytest.fixture
+def reported_allocation_entity() -> str:
+    """Return a test reported allocation entity ID."""
+    return "sensor.test_reported_allocation_15min"
 
 
 @pytest.fixture
@@ -105,32 +112,40 @@ def make_percentage_state(entity_id: str, value: float) -> dict[str, Any]:
 
 
 @pytest.fixture
+def interval_end() -> datetime:
+    """Return a standard completed interval end timestamp."""
+    return datetime(
+        2026, 7, 12, 15, 0, 0, tzinfo=dt_util.get_time_zone("Europe/Ljubljana")
+    )
+
+
+@pytest.fixture
 def mock_config_entry(
-    grid_import_entity: str,
-    shared_energy_entity: str,
+    provider_export_entity: str,
+    receiver_import_entity: str,
     percentage_entity: str,
 ) -> MockConfigEntry:
     """Create a mock config entry."""
     return MockConfigEntry(
-        version=1,
+        version=CONFIG_ENTRY_VERSION,
         domain=DOMAIN,
         title="Energy Sharing",
         data={
-            CONF_GRID_IMPORT_ENTITY: grid_import_entity,
-            CONF_SHARED_ENERGY_ENTITY: shared_energy_entity,
-            CONF_PERCENTAGE_MODE: PERCENTAGE_MODE_ENTITY,
-            CONF_PERCENTAGE_ENTITY: percentage_entity,
+            CONF_PROVIDER_EXPORT_SOURCE: provider_export_entity,
+            CONF_RECEIVER_IMPORT_SOURCE: receiver_import_entity,
         },
         options={
+            CONF_ALLOCATION_PERCENTAGE_MODE: PERCENTAGE_MODE_ENTITY,
+            CONF_ALLOCATION_PERCENTAGE_SOURCE: percentage_entity,
             CONF_INTERVAL_MINUTES: DEFAULT_INTERVAL_MINUTES,
             CONF_PROCESSING_DELAY: DEFAULT_PROCESSING_DELAY,
             CONF_MAX_WAIT: DEFAULT_MAX_WAIT,
             CONF_RETRY_INTERVAL: DEFAULT_RETRY_INTERVAL,
             CONF_RESET_TOLERANCE: DEFAULT_RESET_TOLERANCE,
-            CONF_FIXED_PERCENTAGE: DEFAULT_FIXED_PERCENTAGE,
+            CONF_FIXED_ALLOCATION_PERCENTAGE: DEFAULT_FIXED_ALLOCATION_PERCENTAGE,
             "allow_percentage_above_100": False,
         },
-        unique_id=f"{grid_import_entity}|{shared_energy_entity}",
+        unique_id=f"{provider_export_entity}|{receiver_import_entity}",
     )
 
 
@@ -138,28 +153,26 @@ def mock_config_entry(
 async def setup_integration(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
-    grid_import_entity: str,
-    shared_energy_entity: str,
+    provider_export_entity: str,
+    receiver_import_entity: str,
     percentage_entity: str,
+    interval_end: datetime,
 ) -> MockConfigEntry:
     """Set up the integration with default source entities."""
-    interval_end = datetime(
-        2026, 7, 12, 15, 0, 0, tzinfo=dt_util.get_time_zone("Europe/Ljubljana")
-    )
     hass.states.async_set(
-        grid_import_entity,
+        provider_export_entity,
         "0",
         attributes={
-            "last_period": 1.0,
+            "last_period": 10.0,
             "last_reset": interval_end.isoformat(),
             "unit_of_measurement": UnitOfEnergy.KILO_WATT_HOUR,
         },
     )
     hass.states.async_set(
-        shared_energy_entity,
+        receiver_import_entity,
         "0",
         attributes={
-            "last_period": 0.2,
+            "last_period": 1.0,
             "last_reset": interval_end.isoformat(),
             "unit_of_measurement": UnitOfEnergy.KILO_WATT_HOUR,
         },
@@ -172,3 +185,46 @@ async def setup_integration(
     await hass.config_entries.async_setup(mock_config_entry.entry_id)
     await hass.async_block_till_done()
     return mock_config_entry
+
+
+def set_interval_sources(
+    hass: HomeAssistant,
+    *,
+    provider_export_entity: str,
+    receiver_import_entity: str,
+    interval_end: datetime,
+    provider_export_kwh: float = 10.0,
+    receiver_import_kwh: float = 1.0,
+    reported_allocation_entity: str | None = None,
+    reported_allocated_kwh: float | None = None,
+    unit: str = UnitOfEnergy.KILO_WATT_HOUR,
+) -> None:
+    """Set synchronized interval source entity states."""
+    hass.states.async_set(
+        provider_export_entity,
+        "0",
+        attributes={
+            "last_period": provider_export_kwh,
+            "last_reset": interval_end.isoformat(),
+            "unit_of_measurement": unit,
+        },
+    )
+    hass.states.async_set(
+        receiver_import_entity,
+        "0",
+        attributes={
+            "last_period": receiver_import_kwh,
+            "last_reset": interval_end.isoformat(),
+            "unit_of_measurement": unit,
+        },
+    )
+    if reported_allocation_entity is not None and reported_allocated_kwh is not None:
+        hass.states.async_set(
+            reported_allocation_entity,
+            "0",
+            attributes={
+                "last_period": reported_allocated_kwh,
+                "last_reset": interval_end.isoformat(),
+                "unit_of_measurement": unit,
+            },
+        )

@@ -12,10 +12,10 @@ from custom_components.energy_sharing.diagnostics import (
 
 
 @freeze_time("2026-07-12 15:00:10+02:00")
-async def test_diagnostics_contains_useful_data(
+async def test_diagnostics_contains_reconciliation_information(
     hass: HomeAssistant, setup_integration: MockConfigEntry
 ) -> None:
-    """Test diagnostics contain useful data and no unsafe fields."""
+    """Test diagnostics include reconciliation information."""
     entry = setup_integration
     manager = entry.runtime_data.manager
     await manager.async_process_now()
@@ -23,6 +23,8 @@ async def test_diagnostics_contains_useful_data(
     result = await async_get_config_entry_diagnostics(hass, entry)
     assert "entry" in result
     assert "runtime" in result
+    assert "reconciliation" in result
     assert result["runtime"]["processed_intervals"] == 1
-    assert result["entry"]["data"]["grid_import_entity"] == "**REDACTED**"
+    assert result["entry"]["data"]["provider_export_source"] == "**REDACTED**"
     assert result["runtime"]["last_interval"] is not None
+    assert result["reconciliation"]["status"] == "not_configured"
