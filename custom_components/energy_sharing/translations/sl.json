@@ -1,0 +1,150 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Nastavitev souporabe energije",
+        "description": "Nastavite obračun souporabe sončne energije med gospodinjstvoma. Izberite števčnik omrežnega prevzema prejemnega gospodinjstva, števčnik dodeljene souporabljene energije in vir odstotka dodelitve.",
+        "data": {
+          "name": "Ime integracije",
+          "grid_import_entity": "Števčnik omrežnega prevzema (15 min)",
+          "shared_energy_entity": "Števčnik dodeljene souporabe (15 min)",
+          "percentage_mode": "Vir odstotka dodelitve",
+          "percentage_entity": "Entiteta odstotka dodelitve",
+          "fixed_percentage": "Fiksni odstotek dodelitve"
+        },
+        "data_description": {
+          "grid_import_entity": "Utility Meter z omrežnim prevzemom prejemnega gospodinjstva za zadnji zaključeni interval (mora imeti last_period).",
+          "shared_energy_entity": "Utility Meter z dodeljeno souporabljeno energijo za zadnji zaključeni interval (mora imeti last_period).",
+          "percentage_entity": "Entiteta, ki zagotavlja odstotek dodelitve, npr. input_number ali sensor.",
+          "fixed_percentage": "Fiksni odstotek dodelitve, shranjen v nastavitvah integracije."
+        }
+      }
+    },
+    "error": {
+      "duplicate_entities": "Entiteti za omrežni prevzem in souporabo morata biti različni.",
+      "invalid_utility_meter": "Izbrana entiteta ni na voljo ali nima veljavnega atributa last_period.",
+      "invalid_percentage_entity": "Izbrana entiteta odstotka ni na voljo ali ne vrača številske vrednosti."
+    },
+    "abort": {
+      "already_configured": "Ta par entitet je že nastavljen."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Možnosti souporabe energije",
+        "description": "Izvorne entitete: omrežni prevzem `{grid_import_entity}`, souporaba `{shared_energy_entity}`, način odstotka `{percentage_mode}`{percentage_entity, select, other {, entiteta odstotka `{percentage_entity}`}, empty {}}. Te identitetne nastavitve tukaj ni mogoče spremeniti.",
+        "data": {
+          "name": "Ime integracije",
+          "interval_minutes": "Dolžina intervala (minute)",
+          "processing_delay": "Zakasnitev obdelave po meji intervala (sekunde)",
+          "max_wait": "Najdaljše čakanje na sinhronizirane vnose (sekunde)",
+          "retry_interval": "Interval ponovitve (sekunde)",
+          "reset_tolerance": "Največja razlika časovnih žigov ponastavitve (sekunde)",
+          "fixed_percentage": "Fiksni odstotek dodelitve",
+          "allow_percentage_above_100": "Dovoli odstotek dodelitve nad 100 %"
+        }
+      }
+    },
+    "error": {
+      "invalid_percentage": "Odstotek dodelitve mora biti večji od nič."
+    }
+  },
+  "selector": {
+    "percentage_mode": {
+      "options": {
+        "percentage_mode_entity": "Beri iz entitete",
+        "percentage_mode_fixed": "Uporabi fiksni odstotek"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "imported_last_interval": {
+        "name": "Uvožena energija (zadnji interval)"
+      },
+      "shared_last_interval": {
+        "name": "Dodeljena souporaba (zadnji interval)"
+      },
+      "exported_last_interval": {
+        "name": "Sklepan izvoz ponudnika (zadnji interval)"
+      },
+      "used_last_interval": {
+        "name": "Uporabljena souporaba (zadnji interval)"
+      },
+      "unused_last_interval": {
+        "name": "Neuporabljena souporaba (zadnji interval)"
+      },
+      "billable_last_interval": {
+        "name": "Obračunska omrežna energija (zadnji interval)"
+      },
+      "required_share_last_interval": {
+        "name": "Zahtevan odstotek dodelitve (zadnji interval)"
+      },
+      "ideal_share_last_interval": {
+        "name": "Idealen odstotek dodelitve (zadnji interval)"
+      },
+      "allocation_utilization_last_interval": {
+        "name": "Izkoriščenost dodelitve (zadnji interval)"
+      },
+      "consumption_coverage_last_interval": {
+        "name": "Pokritost porabe (zadnji interval)"
+      },
+      "total_imported": {
+        "name": "Skupna uvožena energija"
+      },
+      "total_shared": {
+        "name": "Skupna dodeljena souporaba"
+      },
+      "total_used": {
+        "name": "Skupna uporabljena souporaba"
+      },
+      "total_unused": {
+        "name": "Skupna neuporabljena souporaba"
+      },
+      "total_billable": {
+        "name": "Skupna obračunska omrežna energija"
+      },
+      "last_processed_interval": {
+        "name": "Zadnji obdelan interval"
+      },
+      "processed_interval_count": {
+        "name": "Število obdelanih intervalov"
+      },
+      "skipped_interval_count": {
+        "name": "Število preskočenih intervalov"
+      },
+      "integration_status": {
+        "name": "Status integracije"
+      },
+      "current_allocation_percentage": {
+        "name": "Trenutni odstotek dodelitve"
+      }
+    }
+  },
+  "services": {
+    "process_now": {
+      "name": "Obdelaj zdaj",
+      "description": "Poskusi obdelati zadnji zaključeni interval za izbrano napravo souporabe energije."
+    },
+    "reset_totals": {
+      "name": "Ponastavi seštevke",
+      "description": "Ponastavi vse kumulativne energijske seštevke in števce intervalov. Izvorni Utility Meterji se ne spremenijo.",
+      "fields": {
+        "confirm": {
+          "name": "Potrdi ponastavitev",
+          "description": "Mora biti nastavljeno na true za potrditev ponastavitve kumulativnih seštevkov."
+        }
+      }
+    }
+  },
+  "status": {
+    "waiting": "Čakanje",
+    "processing": "Obdelava",
+    "ready": "Pripravljeno",
+    "inputs_unavailable": "Vnosi niso na voljo",
+    "inputs_unsynchronized": "Vnosi niso sinhronizirani",
+    "invalid_input": "Neveljaven vnos",
+    "percentage_invalid": "Neveljaven odstotek"
+  }
+}
