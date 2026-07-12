@@ -1,0 +1,13 @@
+{
+  "domain": "energy_sharing",
+  "name": "Energy Sharing",
+  "codeowners": ["@local"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/local/energy-sharing",
+  "integration_type": "device",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/local/energy-sharing/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}
