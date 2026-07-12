@@ -48,5 +48,4 @@ async def _async_update_listener(
     if entry.runtime_data is not None:
         manager = entry.runtime_data.manager
         manager.entry = entry
-        manager._schedule_next_processing()
-        manager._notify_update()
+        manager.async_reconfigure()

@@ -19,7 +19,14 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import EnergySharingConfigEntry
-from .const import DOMAIN, MANUFACTURER, MODEL, STATUS_READY
+from .const import (
+    CONF_REPORTED_ALLOCATION_SOURCE,
+    DOMAIN,
+    MANUFACTURER,
+    MODEL,
+    STATUS_READY,
+    STATUS_RECONCILIATION_MISMATCH,
+)
 from .manager import EnergySharingManager
 from .models import IntervalResult
 
@@ -36,60 +43,99 @@ class EnergySharingSensorDescription(SensorEntityDescription):
     status: bool = False
     timestamp: bool = False
     counter: bool = False
+    reconciliation_only: bool = False
+    interval_start: bool = False
 
 
 INTERVAL_KWH_SENSORS: tuple[EnergySharingSensorDescription, ...] = (
     EnergySharingSensorDescription(
-        key="imported_last_interval",
-        translation_key="imported_last_interval",
-        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
-        state_class=SensorStateClass.MEASUREMENT,
-        icon="mdi:transmission-tower-import",
-        value_key="imported_kwh",
-    ),
-    EnergySharingSensorDescription(
-        key="shared_last_interval",
-        translation_key="shared_last_interval",
-        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
-        state_class=SensorStateClass.MEASUREMENT,
-        icon="mdi:solar-power",
-        value_key="shared_kwh",
-    ),
-    EnergySharingSensorDescription(
-        key="exported_last_interval",
-        translation_key="exported_last_interval",
+        key="provider_export_last_interval",
+        translation_key="provider_export_last_interval",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:home-export-outline",
-        value_key="exported_kwh",
+        value_key="provider_exported_kwh",
     ),
     EnergySharingSensorDescription(
-        key="used_last_interval",
-        translation_key="used_last_interval",
+        key="receiver_import_last_interval",
+        translation_key="receiver_import_last_interval",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:transmission-tower-import",
+        value_key="receiver_imported_kwh",
+    ),
+    EnergySharingSensorDescription(
+        key="calculated_allocated_last_interval",
+        translation_key="calculated_allocated_last_interval",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:solar-power",
+        value_key="calculated_allocated_kwh",
+    ),
+    EnergySharingSensorDescription(
+        key="reported_allocated_last_interval",
+        translation_key="reported_allocated_last_interval",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:solar-power-variant",
+        value_key="reported_allocated_kwh",
+        reconciliation_only=True,
+    ),
+    EnergySharingSensorDescription(
+        key="allocation_difference_last_interval",
+        translation_key="allocation_difference_last_interval",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:compare-horizontal",
+        value_key="allocation_difference_kwh",
+        reconciliation_only=True,
+    ),
+    EnergySharingSensorDescription(
+        key="used_shared_last_interval",
+        translation_key="used_shared_last_interval",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:check-circle-outline",
-        value_key="used_kwh",
+        value_key="used_shared_kwh",
     ),
     EnergySharingSensorDescription(
-        key="unused_last_interval",
-        translation_key="unused_last_interval",
+        key="unused_shared_last_interval",
+        translation_key="unused_shared_last_interval",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:close-circle-outline",
-        value_key="unused_kwh",
+        value_key="unused_shared_kwh",
     ),
     EnergySharingSensorDescription(
-        key="billable_last_interval",
-        translation_key="billable_last_interval",
+        key="billable_grid_last_interval",
+        translation_key="billable_grid_last_interval",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:cash",
-        value_key="billable_kwh",
+        value_key="billable_grid_kwh",
     ),
 )
 
 INTERVAL_PERCENT_SENSORS: tuple[EnergySharingSensorDescription, ...] = (
+    EnergySharingSensorDescription(
+        key="effective_allocation_percentage_last_interval",
+        translation_key="effective_allocation_percentage_last_interval",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:percent",
+        value_key="allocation_percentage",
+        percentage=True,
+    ),
+    EnergySharingSensorDescription(
+        key="allocation_difference_pct_last_interval",
+        translation_key="allocation_difference_pct_last_interval",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:percent-outline",
+        value_key="allocation_difference_pct",
+        percentage=True,
+        reconciliation_only=True,
+    ),
     EnergySharingSensorDescription(
         key="required_share_last_interval",
         translation_key="required_share_last_interval",
@@ -130,28 +176,38 @@ INTERVAL_PERCENT_SENSORS: tuple[EnergySharingSensorDescription, ...] = (
 
 CUMULATIVE_SENSORS: tuple[EnergySharingSensorDescription, ...] = (
     EnergySharingSensorDescription(
-        key="total_imported",
-        translation_key="total_imported",
+        key="total_provider_export",
+        translation_key="total_provider_export",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        icon="mdi:home-export-outline",
+        value_key="cumulative_provider_export",
+        cumulative=True,
+    ),
+    EnergySharingSensorDescription(
+        key="total_receiver_import",
+        translation_key="total_receiver_import",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         device_class=SensorDeviceClass.ENERGY,
         state_class=SensorStateClass.TOTAL_INCREASING,
         icon="mdi:transmission-tower-import",
-        value_key="cumulative_imported",
+        value_key="cumulative_receiver_import",
         cumulative=True,
     ),
     EnergySharingSensorDescription(
-        key="total_shared",
-        translation_key="total_shared",
+        key="total_calculated_allocated",
+        translation_key="total_calculated_allocated",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         device_class=SensorDeviceClass.ENERGY,
         state_class=SensorStateClass.TOTAL_INCREASING,
         icon="mdi:solar-power",
-        value_key="cumulative_shared",
+        value_key="cumulative_calculated_allocated",
         cumulative=True,
     ),
     EnergySharingSensorDescription(
-        key="total_used",
-        translation_key="total_used",
+        key="total_used_shared",
+        translation_key="total_used_shared",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         device_class=SensorDeviceClass.ENERGY,
         state_class=SensorStateClass.TOTAL_INCREASING,
@@ -160,8 +216,8 @@ CUMULATIVE_SENSORS: tuple[EnergySharingSensorDescription, ...] = (
         cumulative=True,
     ),
     EnergySharingSensorDescription(
-        key="total_unused",
-        translation_key="total_unused",
+        key="total_unused_shared",
+        translation_key="total_unused_shared",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         device_class=SensorDeviceClass.ENERGY,
         state_class=SensorStateClass.TOTAL_INCREASING,
@@ -170,8 +226,8 @@ CUMULATIVE_SENSORS: tuple[EnergySharingSensorDescription, ...] = (
         cumulative=True,
     ),
     EnergySharingSensorDescription(
-        key="total_billable",
-        translation_key="total_billable",
+        key="total_billable_grid",
+        translation_key="total_billable_grid",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         device_class=SensorDeviceClass.ENERGY,
         state_class=SensorStateClass.TOTAL_INCREASING,
@@ -183,11 +239,44 @@ CUMULATIVE_SENSORS: tuple[EnergySharingSensorDescription, ...] = (
 
 STATUS_SENSORS: tuple[EnergySharingSensorDescription, ...] = (
     EnergySharingSensorDescription(
+        key="interval_start",
+        translation_key="interval_start",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        icon="mdi:clock-start",
+        interval_start=True,
+    ),
+    EnergySharingSensorDescription(
+        key="interval_end",
+        translation_key="interval_end",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        icon="mdi:clock-end",
+        timestamp=True,
+    ),
+    EnergySharingSensorDescription(
         key="last_processed_interval",
         translation_key="last_processed_interval",
         device_class=SensorDeviceClass.TIMESTAMP,
         icon="mdi:clock-check-outline",
         timestamp=True,
+    ),
+    EnergySharingSensorDescription(
+        key="reconciliation_status",
+        translation_key="reconciliation_status",
+        icon="mdi:compare",
+        status=True,
+        value_key="reconciliation_status",
+    ),
+    EnergySharingSensorDescription(
+        key="integration_status",
+        translation_key="integration_status",
+        icon="mdi:state-machine",
+        status=True,
+    ),
+    EnergySharingSensorDescription(
+        key="last_skip_reason",
+        translation_key="last_skip_reason",
+        icon="mdi:alert-circle-outline",
+        status=True,
     ),
     EnergySharingSensorDescription(
         key="processed_interval_count",
@@ -206,10 +295,12 @@ STATUS_SENSORS: tuple[EnergySharingSensorDescription, ...] = (
         counter=True,
     ),
     EnergySharingSensorDescription(
-        key="integration_status",
-        translation_key="integration_status",
-        icon="mdi:state-machine",
-        status=True,
+        key="reconciliation_mismatch_count",
+        translation_key="reconciliation_mismatch_count",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        icon="mdi:counter",
+        value_key="reconciliation_mismatch_count",
+        counter=True,
     ),
     EnergySharingSensorDescription(
         key="current_allocation_percentage",
@@ -229,6 +320,7 @@ async def async_setup_entry(
 ) -> None:
     """Set up Energy Sharing sensors."""
     manager = entry.runtime_data.manager
+    has_reconciliation = bool(entry.options.get(CONF_REPORTED_ALLOCATION_SOURCE))
     entities: list[EnergySharingSensor] = []
 
     for description in (
@@ -237,6 +329,8 @@ async def async_setup_entry(
         *CUMULATIVE_SENSORS,
         *STATUS_SENSORS,
     ):
+        if description.reconciliation_only and not has_reconciliation:
+            continue
         entities.append(EnergySharingSensor(entry, manager, description))
 
     async_add_entities(entities)
@@ -294,18 +388,39 @@ class EnergySharingSensor(SensorEntity):
         data = self._manager.data
         last_interval = data.last_interval
 
-        if description.status:
+        if description.key == "integration_status":
             self._attr_native_value = self._manager.status
-            self._attr_extra_state_attributes = {
-                "last_skip_reason": (
-                    data.last_skip.reason if data.last_skip else None
-                ),
-            }
+            self._attr_available = True
+            return
+
+        if description.key == "last_skip_reason":
+            self._attr_native_value = (
+                data.last_skip.reason if data.last_skip else None
+            )
+            self._attr_available = True
+            return
+
+        if description.key == "reconciliation_status":
+            if last_interval is None:
+                self._attr_native_value = None
+                self._attr_available = False
+            else:
+                self._attr_native_value = last_interval.reconciliation_status
+                self._attr_available = True
             return
 
         if description.key == "current_allocation_percentage":
             self._attr_native_value = self._manager.get_effective_percentage()
             self._attr_available = self._attr_native_value is not None
+            return
+
+        if description.interval_start:
+            if last_interval is None:
+                self._attr_native_value = None
+                self._attr_available = False
+            else:
+                self._attr_native_value = last_interval.interval_start
+                self._attr_available = True
             return
 
         if description.timestamp:
@@ -336,9 +451,10 @@ class EnergySharingSensor(SensorEntity):
         key = description.value_key
         assert key is not None
         self._attr_native_value = getattr(last_interval, key)
-        self._attr_available = self._manager.status == STATUS_READY or (
-            self._attr_native_value is not None
-        )
+        self._attr_available = self._manager.status in (
+            STATUS_READY,
+            STATUS_RECONCILIATION_MISMATCH,
+        ) or (self._attr_native_value is not None)
         self._attr_extra_state_attributes = _interval_attributes(last_interval)
 
     @property
@@ -356,8 +472,11 @@ def _interval_attributes(interval: IntervalResult) -> dict[str, Any]:
         "interval_start": interval.interval_start.isoformat(),
         "interval_end": interval.interval_end.isoformat(),
         "allocation_percentage": interval.allocation_percentage,
-        "grid_import_entity": interval.grid_import_entity,
-        "shared_energy_entity": interval.shared_energy_entity,
+        "provider_export_source": interval.provider_export_source,
+        "receiver_import_source": interval.receiver_import_source,
+        "reported_allocation_source": interval.reported_allocation_source,
+        "allocation_percentage_source": interval.allocation_percentage_source,
+        "reconciliation_status": interval.reconciliation_status,
         "processed_at": interval.processed_at.isoformat(),
         "validity": "valid",
         "status": STATUS_READY,
