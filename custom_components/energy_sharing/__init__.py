@@ -6,8 +6,9 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN
-from .manager import EnergySharingManager, EnergySharingRuntimeData
+from .const import DOMAIN as DOMAIN
+from .manager import EnergySharingManager
+from .models import EnergySharingRuntimeData
 
 PLATFORMS: list[Platform] = [Platform.SENSOR]
 
@@ -35,14 +36,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: EnergySharingConfigEntry
 
 async def async_unload_entry(hass: HomeAssistant, entry: EnergySharingConfigEntry) -> bool:
     """Unload an Energy Sharing config entry."""
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    if unload_ok and entry.runtime_data is not None:
+    if entry.runtime_data is not None:
         await entry.runtime_data.manager.async_unload()
-    return unload_ok
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 
 async def _async_update_listener(
     hass: HomeAssistant, entry: EnergySharingConfigEntry
 ) -> None:
     """Handle options update."""
-    await hass.config_entries.async_reload(entry.entry_id)
+    if entry.runtime_data is not None:
+        manager = entry.runtime_data.manager
+        manager.entry = entry
+        manager._schedule_next_processing()
+        manager._notify_update()

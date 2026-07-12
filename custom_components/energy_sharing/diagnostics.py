@@ -9,10 +9,8 @@ from homeassistant.core import HomeAssistant
 
 from . import EnergySharingConfigEntry
 from .const import (
-    CONF_FIXED_PERCENTAGE,
     CONF_GRID_IMPORT_ENTITY,
     CONF_PERCENTAGE_ENTITY,
-    CONF_PERCENTAGE_MODE,
     CONF_SHARED_ENERGY_ENTITY,
 )
 

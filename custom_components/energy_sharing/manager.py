@@ -43,9 +43,9 @@ from .const import (
     MODEL,
     PERCENTAGE_MODE_ENTITY,
     PERCENTAGE_MODE_FIXED,
+    SERVICE_CONFIRM,
     SERVICE_PROCESS_NOW,
     SERVICE_RESET_TOTALS,
-    SERVICE_CONFIRM,
     STATUS_INPUTS_UNAVAILABLE,
     STATUS_INPUTS_UNSYNCHRONIZED,
     STATUS_INVALID_INPUT,
@@ -96,7 +96,7 @@ class EnergySharingManager:
         self.status = STATUS_WAITING
         self._listeners: list[CALLBACK_TYPE] = []
         self._unsub_schedule: CALLBACK_TYPE | None = None
-        self._retry_handle: asyncio.TimerHandle | None = None
+        self._retry_unsub: CALLBACK_TYPE | None = None
         self._processing_lock = asyncio.Lock()
         self._retry_deadline: datetime | None = None
         self._retry_warning_logged = False
@@ -247,7 +247,7 @@ class EnergySharingManager:
             for entry_id in device.config_entries:
                 entry = self.hass.config_entries.async_get_entry(entry_id)
                 if entry and entry.domain == DOMAIN:
-                    return entry  # type: ignore[return-value]
+                    return entry
         return None
 
     def _subscribe_source_entities(self) -> None:
@@ -279,7 +279,7 @@ class EnergySharingManager:
             self._unsub_schedule()
             self._unsub_schedule = None
 
-        next_run = self._calculate_next_run(dt_util.utcnow())
+        next_run = self._calculate_next_run(dt_util.now())
         _LOGGER.debug(
             "Scheduling next processing for %s at %s",
             self.entry.title,
@@ -321,9 +321,9 @@ class EnergySharingManager:
 
     def _cancel_retry(self) -> None:
         """Cancel any pending retry timer."""
-        if self._retry_handle is not None:
-            self._retry_handle.cancel()
-            self._retry_handle = None
+        if self._retry_unsub is not None:
+            self._retry_unsub()
+            self._retry_unsub = None
 
     async def _async_retry_processing(self) -> None:
         """Retry processing while within the maximum wait window."""
@@ -357,7 +357,7 @@ class EnergySharingManager:
 
     async def _async_attempt_processing(self, trigger: str) -> str:
         """Core processing attempt with retry support."""
-        now = dt_util.utcnow()
+        now = dt_util.now()
         expected_end = get_expected_interval_end(now, self.interval_minutes)
         expected_interval_id = interval_id_from_end(expected_end)
 
@@ -367,21 +367,21 @@ class EnergySharingManager:
 
         try:
             inputs = await self._async_read_synchronized_inputs(expected_end)
-        except _InputsUnavailable:
+        except _InputsUnavailableError:
             self.status = STATUS_INPUTS_UNAVAILABLE
             return await self._async_handle_retry(
                 trigger,
                 expected_interval_id,
                 "inputs_unavailable",
             )
-        except _InputsUnsynchronized as err:
+        except _InputsUnsynchronizedError as err:
             self.status = STATUS_INPUTS_UNSYNCHRONIZED
             return await self._async_handle_retry(
                 trigger,
                 expected_interval_id,
                 err.reason,
             )
-        except _InvalidInput as err:
+        except _InvalidInputError as err:
             self._clear_retry_state()
             self.status = STATUS_INVALID_INPUT
             await self._async_record_skip(err.reason, inputs.interval_id)
@@ -389,7 +389,7 @@ class EnergySharingManager:
 
         try:
             percentage = await self._async_read_percentage()
-        except _PercentageInvalid as err:
+        except _PercentageInvalidError as err:
             self._clear_retry_state()
             self.status = STATUS_PERCENTAGE_INVALID
             await self._async_record_skip(err.reason, inputs.interval_id)
@@ -496,7 +496,7 @@ class EnergySharingManager:
     ) -> str:
         """Handle retry or final skip when inputs are not ready."""
         now = dt_util.utcnow()
-        if now < self._retry_deadline:
+        if self._retry_deadline is not None and now < self._retry_deadline:
             if not self._retry_warning_logged:
                 _LOGGER.warning(
                     "Inputs not ready for %s (%s), retrying until %s",
@@ -520,7 +520,7 @@ class EnergySharingManager:
         def _retry(_now: datetime) -> None:
             self.hass.async_create_task(self._async_retry_processing())
 
-        self._retry_handle = async_call_later(
+        self._retry_unsub = async_call_later(
             self.hass,
             self.retry_interval,
             _retry,
@@ -561,16 +561,16 @@ class EnergySharingManager:
 
         entity_id = self.entry.data.get(CONF_PERCENTAGE_ENTITY)
         if not entity_id:
-            raise _PercentageInvalid("percentage_entity_missing")
+            raise _PercentageInvalidError("percentage_entity_missing")
 
         state = self.hass.states.get(entity_id)
         if state is None or state.state in ("unknown", "unavailable"):
-            raise _PercentageInvalid("percentage_unavailable")
+            raise _PercentageInvalidError("percentage_unavailable")
 
         try:
             return read_percentage(state)
         except HomeAssistantError as err:
-            raise _PercentageInvalid(str(err)) from err
+            raise _PercentageInvalidError(str(err)) from err
 
     async def _async_read_synchronized_inputs(
         self, expected_end: datetime
@@ -588,7 +588,7 @@ class EnergySharingManager:
             or grid_state.state in ("unknown", "unavailable")
             or shared_state.state in ("unknown", "unavailable")
         ):
-            raise _InputsUnavailable()
+            raise _InputsUnavailableError()
 
         grid_reset = parse_reset_timestamp(
             grid_state.attributes.get(ATTR_LAST_RESET)
@@ -597,16 +597,16 @@ class EnergySharingManager:
             shared_state.attributes.get(ATTR_LAST_RESET)
         )
         if grid_reset is None or shared_reset is None:
-            raise _InvalidInput("missing_last_reset")
+            raise _InvalidInputError("missing_last_reset")
 
         if not resets_match(grid_reset, shared_reset, self.reset_tolerance):
-            raise _InputsUnsynchronized("reset_timestamps_differ")
+            raise _InputsUnsynchronizedError("reset_timestamps_differ")
 
         interval_end = dt_util.as_local(grid_reset)
         if not reset_matches_interval_end(
             grid_reset, expected_end, self.reset_tolerance
         ):
-            raise _InputsUnsynchronized("reset_not_matching_expected_interval")
+            raise _InputsUnsynchronizedError("reset_not_matching_expected_interval")
 
         interval_id = interval_id_from_end(interval_end)
 
@@ -614,7 +614,7 @@ class EnergySharingManager:
             imported_kwh = read_utility_meter_last_period_kwh(grid_state)
             shared_kwh = read_utility_meter_last_period_kwh(shared_state)
         except HomeAssistantError as err:
-            raise _InvalidInput(str(err)) from err
+            raise _InvalidInputError(str(err)) from err
 
         return _SynchronizedInputs(
             interval_id=interval_id,
@@ -713,11 +713,11 @@ class _SynchronizedInputs:
         self.shared_kwh = shared_kwh
 
 
-class _InputsUnavailable(Exception):
+class _InputsUnavailableError(Exception):
     """Raised when source entities are unavailable."""
 
 
-class _InputsUnsynchronized(Exception):
+class _InputsUnsynchronizedError(Exception):
     """Raised when source entities are not synchronized."""
 
     def __init__(self, reason: str) -> None:
@@ -726,7 +726,7 @@ class _InputsUnsynchronized(Exception):
         self.reason = reason
 
 
-class _InvalidInput(Exception):
+class _InvalidInputError(Exception):
     """Raised when source entity data is invalid."""
 
     def __init__(self, reason: str) -> None:
@@ -735,7 +735,7 @@ class _InvalidInput(Exception):
         self.reason = reason
 
 
-class _PercentageInvalid(Exception):
+class _PercentageInvalidError(Exception):
     """Raised when the allocation percentage is invalid."""
 
     def __init__(self, reason: str) -> None:

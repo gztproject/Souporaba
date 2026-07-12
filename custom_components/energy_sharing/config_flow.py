@@ -6,7 +6,6 @@ import logging
 from typing import Any
 
 import voluptuous as vol
-
 from homeassistant import config_entries
 from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant, callback
@@ -108,24 +107,20 @@ def _user_schema(hass: HomeAssistant, defaults: dict[str, Any] | None = None) ->
                 mode=selector.SelectSelectorMode.DROPDOWN,
             )
         ),
+        vol.Optional(CONF_PERCENTAGE_ENTITY): vol.Any(
+            None,
+            "",
+            selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain=["input_number", "sensor", "number"]
+                )
+            ),
+        ),
+        vol.Optional(
+            CONF_FIXED_PERCENTAGE,
+            default=defaults.get(CONF_FIXED_PERCENTAGE, DEFAULT_FIXED_PERCENTAGE),
+        ): vol.All(vol.Coerce(float), vol.Range(min=0.01, max=1000)),
     }
-
-    if percentage_mode == PERCENTAGE_MODE_ENTITY:
-        schema[
-            vol.Required(
-                CONF_PERCENTAGE_ENTITY,
-                default=defaults.get(CONF_PERCENTAGE_ENTITY),
-            )
-        ] = selector.EntitySelector(
-            selector.EntitySelectorConfig(domain=["input_number", "sensor", "number"])
-        )
-    else:
-        schema[
-            vol.Required(
-                CONF_FIXED_PERCENTAGE,
-                default=defaults.get(CONF_FIXED_PERCENTAGE, DEFAULT_FIXED_PERCENTAGE),
-            )
-        ] = vol.All(vol.Coerce(float), vol.Range(min=0.01, max=1000))
 
     return vol.Schema(schema)
 
@@ -223,7 +218,9 @@ class EnergySharingConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="user",
-            data_schema=_user_schema(self.hass, self._user_input or None),
+            data_schema=_user_schema(
+                self.hass, user_input if user_input is not None else self._user_input or None
+            ),
             errors=errors,
         )
 
@@ -264,12 +261,17 @@ class EnergySharingConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors[key] = "invalid_utility_meter"
 
         if user_input[CONF_PERCENTAGE_MODE] == PERCENTAGE_MODE_ENTITY:
-            try:
-                await validate_percentage_entity(
-                    self.hass, user_input[CONF_PERCENTAGE_ENTITY]
-                )
-            except ValueError:
+            if not user_input.get(CONF_PERCENTAGE_ENTITY):
                 errors["percentage"] = "invalid_percentage_entity"
+            else:
+                try:
+                    await validate_percentage_entity(
+                        self.hass, user_input[CONF_PERCENTAGE_ENTITY]
+                    )
+                except ValueError:
+                    errors["percentage"] = "invalid_percentage_entity"
+        elif not user_input.get(CONF_FIXED_PERCENTAGE):
+            errors["base"] = "invalid_percentage_entity"
 
         return errors
 
@@ -304,12 +306,12 @@ class EnergySharingOptionsFlowHandler(config_entries.OptionsFlow):
 
             if not errors:
                 new_title = user_input.pop(CONF_NAME)
-                await self.hass.config_entries.async_update_entry(
+                options = {**self.config_entry.options, **user_input}
+                self.hass.config_entries.async_update_entry(
                     self.config_entry,
                     title=new_title,
-                    options=user_input,
                 )
-                return self.async_create_entry(title="", data={})
+                return self.async_create_entry(title="", data=options)
 
         return self.async_show_form(
             step_id="init",

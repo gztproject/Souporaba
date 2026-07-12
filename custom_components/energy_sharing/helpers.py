@@ -13,7 +13,6 @@ from homeassistant.util.unit_conversion import EnergyConverter
 
 from .const import (
     ATTR_LAST_PERIOD,
-    ATTR_LAST_RESET,
     SUPPORTED_ENERGY_UNITS,
 )
 
@@ -43,6 +42,7 @@ def parse_reset_timestamp(value: Any) -> datetime | None:
     """Parse a last_reset timestamp."""
     if value is None:
         return None
+    parsed: datetime | None
     if isinstance(value, datetime):
         parsed = value
     else:
