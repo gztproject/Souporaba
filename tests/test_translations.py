@@ -64,6 +64,29 @@ def test_documentation_no_utility_meter_requirement() -> None:
         assert phrase in combined or phrase.replace("_", " ") in combined
 
 
+def test_config_flow_schemas_serialize_for_ui() -> None:
+    """Config flow schemas must serialize for the HA frontend API."""
+    import voluptuous_serialize
+    from homeassistant.helpers import config_validation as cv
+
+    from custom_components.energy_sharing.config_flow import (
+        _default_options,
+        _options_schema,
+        _user_schema,
+    )
+
+    user_schema = _user_schema(None)
+    options_schema = _options_schema({**_default_options(), "name": "Energy Sharing"})
+
+    for schema in (user_schema, options_schema):
+        serialized = voluptuous_serialize.convert(
+            schema.schema,
+            custom_serializer=cv.custom_serializer,
+        )
+        assert isinstance(serialized, list)
+        assert serialized
+
+
 def test_documentation_uses_official_role_terminology() -> None:
     readme = Path("README.md").read_text(encoding="utf-8")
     input_doc = Path("docs/INPUT_ENTITIES.md").read_text(encoding="utf-8")

@@ -66,6 +66,44 @@ _CUMULATIVE_ENERGY_SELECTOR = selector.EntitySelector(
     )
 )
 
+_PERCENTAGE_SELECTOR = selector.NumberSelector(
+    selector.NumberSelectorConfig(
+        min=MIN_ALLOCATION_PERCENTAGE,
+        max=MAX_ALLOCATION_PERCENTAGE,
+        step=0.01,
+        mode=selector.NumberSelectorMode.BOX,
+    )
+)
+
+_USER_PERCENTAGE_SELECTOR = selector.NumberSelector(
+    selector.NumberSelectorConfig(
+        min=0,
+        max=MAX_ALLOCATION_PERCENTAGE,
+        step=0.01,
+        mode=selector.NumberSelectorMode.BOX,
+    )
+)
+
+_TEXT_SELECTOR = selector.TextSelector()
+
+
+def _integer_selector(*, minimum: int, maximum: int) -> selector.NumberSelector:
+    return selector.NumberSelector(
+        selector.NumberSelectorConfig(
+            min=minimum,
+            max=maximum,
+            step=1,
+            mode=selector.NumberSelectorMode.BOX,
+        )
+    )
+
+
+def _optional_field(key: str, defaults: dict[str, Any] | None) -> vol.Optional:
+    """Build an optional marker without injecting None as a default value."""
+    if defaults and defaults.get(key) not in (None, ""):
+        return vol.Optional(key, default=defaults[key])
+    return vol.Optional(key)
+
 
 def _default_options() -> dict[str, Any]:
     return {
@@ -93,14 +131,12 @@ def _user_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
                 CONF_SHARED_ENERGY_TOTAL_SOURCE,
                 default=defaults.get(CONF_SHARED_ENERGY_TOTAL_SOURCE),
             ): _CUMULATIVE_ENERGY_SELECTOR,
-            vol.Optional(
-                CONF_PROVIDER_EXPORT_TOTAL_SOURCE,
-                default=defaults.get(CONF_PROVIDER_EXPORT_TOTAL_SOURCE),
-            ): vol.Any(None, "", _CUMULATIVE_ENERGY_SELECTOR),
-        vol.Optional(
-            CONF_FIXED_ALLOCATION_PERCENTAGE,
-            default=defaults.get(CONF_FIXED_ALLOCATION_PERCENTAGE),
-        ): vol.Any(None, "", vol.All(vol.Coerce(float), vol.Range(min=0, max=200))),
+            _optional_field(
+                CONF_PROVIDER_EXPORT_TOTAL_SOURCE, defaults
+            ): _CUMULATIVE_ENERGY_SELECTOR,
+            _optional_field(
+                CONF_FIXED_ALLOCATION_PERCENTAGE, defaults
+            ): _USER_PERCENTAGE_SELECTOR,
         }
     )
 
@@ -110,70 +146,49 @@ def _options_schema(defaults: dict[str, Any]) -> vol.Schema:
         vol.Required(
             CONF_NAME, default=defaults.get(CONF_NAME, DEFAULT_NAME)
         ): selector.TextSelector(),
-        vol.Optional(
-            CONF_PROVIDER_EXPORT_TOTAL_SOURCE,
-            default=defaults.get(CONF_PROVIDER_EXPORT_TOTAL_SOURCE),
-        ): vol.Any(None, "", _CUMULATIVE_ENERGY_SELECTOR),
-        vol.Optional(
-            CONF_FIXED_ALLOCATION_PERCENTAGE,
-            default=defaults.get(CONF_FIXED_ALLOCATION_PERCENTAGE),
-        ): vol.Any(
-            None,
-            "",
-            vol.All(
-                vol.Coerce(float),
-                vol.Range(min=MIN_ALLOCATION_PERCENTAGE, max=MAX_ALLOCATION_PERCENTAGE),
-            ),
+        _optional_field(CONF_PROVIDER_EXPORT_TOTAL_SOURCE, defaults): (
+            _CUMULATIVE_ENERGY_SELECTOR
+        ),
+        _optional_field(CONF_FIXED_ALLOCATION_PERCENTAGE, defaults): (
+            _PERCENTAGE_SELECTOR
         ),
         vol.Required(
             CONF_INTERVAL_MINUTES,
             default=defaults.get(CONF_INTERVAL_MINUTES, DEFAULT_INTERVAL_MINUTES),
-        ): vol.All(
-            vol.Coerce(int),
-            vol.Range(min=MIN_INTERVAL_MINUTES, max=MAX_INTERVAL_MINUTES),
+        ): _integer_selector(
+            minimum=MIN_INTERVAL_MINUTES,
+            maximum=MAX_INTERVAL_MINUTES,
         ),
         vol.Required(
             CONF_PROCESSING_DELAY,
             default=defaults.get(CONF_PROCESSING_DELAY, DEFAULT_PROCESSING_DELAY),
-        ): vol.All(
-            vol.Coerce(int),
-            vol.Range(min=MIN_PROCESSING_DELAY, max=MAX_PROCESSING_DELAY),
+        ): _integer_selector(
+            minimum=MIN_PROCESSING_DELAY,
+            maximum=MAX_PROCESSING_DELAY,
         ),
         vol.Required(
             CONF_MAX_WAIT,
             default=defaults.get(CONF_MAX_WAIT, DEFAULT_MAX_WAIT),
-        ): vol.All(vol.Coerce(int), vol.Range(min=MIN_MAX_WAIT, max=MAX_MAX_WAIT)),
+        ): _integer_selector(minimum=MIN_MAX_WAIT, maximum=MAX_MAX_WAIT),
         vol.Required(
             CONF_RETRY_INTERVAL,
             default=defaults.get(CONF_RETRY_INTERVAL, DEFAULT_RETRY_INTERVAL),
-        ): vol.All(
-            vol.Coerce(int),
-            vol.Range(min=MIN_RETRY_INTERVAL, max=MAX_RETRY_INTERVAL),
+        ): _integer_selector(
+            minimum=MIN_RETRY_INTERVAL,
+            maximum=MAX_RETRY_INTERVAL,
         ),
         vol.Required(
             CONF_SOURCE_FRESHNESS_TOLERANCE,
             default=defaults.get(
                 CONF_SOURCE_FRESHNESS_TOLERANCE, DEFAULT_SOURCE_FRESHNESS_TOLERANCE
             ),
-        ): vol.All(
-            vol.Coerce(int),
-            vol.Range(
-                min=MIN_SOURCE_FRESHNESS_TOLERANCE,
-                max=MAX_SOURCE_FRESHNESS_TOLERANCE,
-            ),
+        ): _integer_selector(
+            minimum=MIN_SOURCE_FRESHNESS_TOLERANCE,
+            maximum=MAX_SOURCE_FRESHNESS_TOLERANCE,
         ),
-        vol.Optional(
-            CONF_RECEIVER_TIMESTAMP_ATTR,
-            default=defaults.get(CONF_RECEIVER_TIMESTAMP_ATTR),
-        ): vol.Any(None, "", selector.TextSelector()),
-        vol.Optional(
-            CONF_SHARED_TIMESTAMP_ATTR,
-            default=defaults.get(CONF_SHARED_TIMESTAMP_ATTR),
-        ): vol.Any(None, "", selector.TextSelector()),
-        vol.Optional(
-            CONF_PROVIDER_TIMESTAMP_ATTR,
-            default=defaults.get(CONF_PROVIDER_TIMESTAMP_ATTR),
-        ): vol.Any(None, "", selector.TextSelector()),
+        _optional_field(CONF_RECEIVER_TIMESTAMP_ATTR, defaults): _TEXT_SELECTOR,
+        _optional_field(CONF_SHARED_TIMESTAMP_ATTR, defaults): _TEXT_SELECTOR,
+        _optional_field(CONF_PROVIDER_TIMESTAMP_ATTR, defaults): _TEXT_SELECTOR,
         vol.Required(
             CONF_RECONCILIATION_FAILURE_MODE,
             default=defaults.get(
@@ -381,6 +396,14 @@ class EnergySharingOptionsFlowHandler(config_entries.OptionsFlow):
 
             if not errors:
                 new_title = user_input.pop(CONF_NAME)
+                for timestamp_key in (
+                    CONF_RECEIVER_TIMESTAMP_ATTR,
+                    CONF_SHARED_TIMESTAMP_ATTR,
+                    CONF_PROVIDER_TIMESTAMP_ATTR,
+                ):
+                    user_input[timestamp_key] = _clean_optional(
+                        user_input.get(timestamp_key)
+                    )
                 options = {**self.config_entry.options, **user_input}
                 self.hass.config_entries.async_update_entry(
                     self.config_entry,
