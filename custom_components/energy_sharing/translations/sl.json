@@ -3,19 +3,19 @@
     "step": {
       "user": {
         "title": "Nastavitev souporabe energije",
-        "description": "Nastavite obračun souporabe iz kumulativnih energijskih števcev. Integracija interno ustvarja poravnane 15-minutne intervale. Izberite skupni omrežni prevzem prejemnika, skupno prejeto souporabno energijo in vsaj fiksni odstotek dodelitve ali skupni izvoz ponudnika.",
+        "description": "Nastavite obračun souporabe iz kumulativnih energijskih števcev. Integracija interno ustvarja poravnane 15-minutne intervale. Izberite skupni omrežni prevzem prejemnika, skupno prejeto souporabno energijo in vsaj fiksni odstotek dodelitve ali skupni izvoz oddajnika.",
         "data": {
           "name": "Ime integracije",
           "receiver_import_total_source": "Skupni omrežni prevzem prejemnika",
           "shared_energy_total_source": "Skupna prejeta souporabna energija",
-          "provider_export_total_source": "Skupni izvoz ponudnika (neobvezno)",
+          "provider_export_total_source": "Skupni izvoz oddajnika (neobvezno)",
           "fixed_allocation_percentage": "Fiksni odstotek dodelitve (neobvezno)"
         },
         "data_description": {
-          "receiver_import_total_source": "Kumulativni energijski senzor za skupni omrežni prevzem prejemnega gospodinjstva (Wh ali kWh).",
+          "receiver_import_total_source": "Kumulativni energijski senzor za skupni omrežni prevzem prejemnika (Wh ali kWh).",
           "shared_energy_total_source": "Kumulativni energijski senzor za skupno energijo, dodeljeno prejemniku prek souporabe.",
-          "provider_export_total_source": "Neobvezen kumulativni senzor za skupni izvoz ponudnika v omrežje.",
-          "fixed_allocation_percentage": "Fiksni pogodbeni odstotek dodelitve. Obvezen, če izvoz ponudnika ni nastavljen."
+          "provider_export_total_source": "Neobvezen kumulativni senzor za skupni izvoz oddajnika v omrežje.",
+          "fixed_allocation_percentage": "Fiksni pogodbeni odstotek dodelitve. Obvezen, če izvoz oddajnika ni nastavljen."
         }
       }
     },
@@ -26,7 +26,7 @@
       "source_not_numeric": "Stanje entitete ni veljavno nenegativno število.",
       "unsupported_energy_unit": "Izbrana entiteta uporablja nepodprto energijsko enoto. Uporabite Wh ali kWh.",
       "percentage_invalid": "Odstotek dodelitve mora biti večji od nič in največ 100.",
-      "percentage_or_export_required": "Nastavite fiksni odstotek dodelitve in/ali skupni izvoz ponudnika."
+      "percentage_or_export_required": "Nastavite fiksni odstotek dodelitve in/ali skupni izvoz oddajnika."
     },
     "abort": {
       "already_configured": "Ta par prevzema in souporabe je že nastavljen."
@@ -36,10 +36,10 @@
     "step": {
       "init": {
         "title": "Možnosti souporabe energije",
-        "description": "Nespremenljiva vira: prevzem `{receiver_import_total_source}`, souporaba `{shared_energy_total_source}`. Tukaj posodobite odstotek, izvoz ponudnika, časovanje in usklajevanje.",
+        "description": "Nespremenljiva vira: prevzem `{receiver_import_total_source}`, souporaba `{shared_energy_total_source}`. Tukaj posodobite odstotek, izvoz oddajnika, časovanje in usklajevanje.",
         "data": {
           "name": "Ime integracije",
-          "provider_export_total_source": "Skupni izvoz ponudnika (neobvezno)",
+          "provider_export_total_source": "Skupni izvoz oddajnika (neobvezno)",
           "fixed_allocation_percentage": "Fiksni odstotek dodelitve (neobvezno)",
           "interval_minutes": "Dolžina intervala (minute)",
           "processing_delay": "Zakasnitev obdelave po meji intervala (sekunde)",
@@ -57,7 +57,7 @@
     },
     "error": {
       "percentage_invalid": "Odstotek dodelitve mora biti večji od nič in največ 100.",
-      "percentage_or_export_required": "Nastavite fiksni odstotek dodelitve in/ali skupni izvoz ponudnika."
+      "percentage_or_export_required": "Nastavite fiksni odstotek dodelitve in/ali skupni izvoz oddajnika."
     }
   },
   "selector": {
@@ -72,7 +72,7 @@
     "sensor": {
       "receiver_import_last_interval": {"name": "Omrežni prevzem prejemnika (zadnji interval)"},
       "shared_energy_last_interval": {"name": "Prejeta souporabna energija (zadnji interval)"},
-      "provider_export_last_interval": {"name": "Izvoz ponudnika (zadnji interval)"},
+      "provider_export_last_interval": {"name": "Izvoz oddajnika (zadnji interval)"},
       "expected_shared_last_interval": {"name": "Pričakovana souporaba (zadnji interval)"},
       "used_shared_last_interval": {"name": "Uporabljena souporaba (zadnji interval)"},
       "unused_shared_last_interval": {"name": "Neuporabljena souporaba (zadnji interval)"},
@@ -87,7 +87,7 @@
       "allocation_difference_pct_last_interval": {"name": "Odstotek razlike dodelitve (zadnji interval)"},
       "total_receiver_import": {"name": "Skupaj obdelan prevzem prejemnika"},
       "total_shared_energy": {"name": "Skupaj prejeta souporabna energija"},
-      "total_provider_export": {"name": "Skupaj obdelan izvoz ponudnika"},
+      "total_provider_export": {"name": "Skupaj obdelan izvoz oddajnika"},
       "total_expected_shared": {"name": "Skupaj pričakovana souporaba"},
       "total_used_shared": {"name": "Skupaj uporabljena souporaba"},
       "total_unused_shared": {"name": "Skupaj neuporabljena souporaba"},
@@ -98,7 +98,7 @@
       "interval_end": {"name": "Konec zadnjega intervala"},
       "last_processed_interval_id": {"name": "ID zadnjega obdelanega intervala"},
       "operating_mode": {"name": "Trenutni način delovanja"},
-      "provider_export_source_type": {"name": "Tip vira izvoza ponudnika"},
+      "provider_export_source_type": {"name": "Tip vira izvoza oddajnika"},
       "reconciliation_status": {"name": "Status usklajevanja"},
       "last_failure_reason": {"name": "Zadnji razlog neuspeha"},
       "processed_interval_count": {"name": "Število uspešnih intervalov"},

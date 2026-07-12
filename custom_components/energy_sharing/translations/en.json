@@ -12,9 +12,9 @@
           "fixed_allocation_percentage": "Fixed allocation percentage (optional)"
         },
         "data_description": {
-          "receiver_import_total_source": "Cumulative energy sensor for total grid import at the receiving household (Wh or kWh).",
-          "shared_energy_total_source": "Cumulative energy sensor for total energy allocated to the receiver through energy sharing.",
-          "provider_export_total_source": "Optional cumulative energy sensor for the provider household full grid export.",
+          "receiver_import_total_source": "Cumulative energy sensor for total grid import at the receiver (Prejemnik), in Wh or kWh.",
+          "shared_energy_total_source": "Cumulative energy sensor for total energy allocated to the receiver (Prejemnik) through energy sharing.",
+          "provider_export_total_source": "Optional cumulative energy sensor for total grid export at the provider (Oddajnik).",
           "fixed_allocation_percentage": "Fixed contractual allocation percentage. Required when provider export is not configured."
         }
       }

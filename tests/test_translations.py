@@ -62,3 +62,31 @@ def test_documentation_no_utility_meter_requirement() -> None:
     ]
     for phrase in required_phrases:
         assert phrase in combined or phrase.replace("_", " ") in combined
+
+
+def test_documentation_uses_official_role_terminology() -> None:
+    readme = Path("README.md").read_text(encoding="utf-8")
+    input_doc = Path("docs/INPUT_ENTITIES.md").read_text(encoding="utf-8")
+    combined = readme + input_doc
+
+    assert "Prejemnik" in combined
+    assert "Oddajnik" in combined
+    assert "Receiver" in combined
+    assert "Provider" in combined
+    assert "sensor.receiver_grid_import_total" in combined
+    assert "sensor.provider_grid_export_total" in combined
+
+
+def test_documentation_has_no_site_specific_entity_names() -> None:
+    paths = [
+        Path("README.md"),
+        Path("docs/INPUT_ENTITIES.md"),
+        Path("custom_components/energy_sharing/strings.json"),
+        Path("custom_components/energy_sharing/translations/en.json"),
+        Path("custom_components/energy_sharing/translations/sl.json"),
+    ]
+    banned = ("hodnik", "trata", "gn8", "solaredge", "trenutni_odstotek")
+    for path in paths:
+        text = path.read_text(encoding="utf-8").lower()
+        for token in banned:
+            assert token not in text, f"{token!r} found in {path}"
