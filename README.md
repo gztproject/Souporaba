@@ -42,6 +42,8 @@ The first completed boundary after setup establishes a **baseline snapshot only*
 
 Copy `custom_components/energy_sharing` into `config/custom_components/` and restart Home Assistant, or install via HACS.
 
+Brand images live in `custom_components/energy_sharing/brand/` (`icon.png`, `logo.png`, and `@2x` variants). Home Assistant **2026.3+** serves them automatically. On older Home Assistant versions, the integrations UI may still show a generic placeholder until you upgrade.
+
 ## Configuration
 
 1. **Settings → Devices & services → Add integration**

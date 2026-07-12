@@ -113,3 +113,28 @@ def test_documentation_has_no_site_specific_entity_names() -> None:
         text = path.read_text(encoding="utf-8").lower()
         for token in banned:
             assert token not in text, f"{token!r} found in {path}"
+
+
+def test_brand_assets_exist_with_required_sizes() -> None:
+    brand = Path("custom_components/energy_sharing/brand")
+    required = {
+        "icon.png": (256, 256),
+        "icon@2x.png": (512, 512),
+        "logo.png": (128, 128),  # minimum shortest side only
+        "logo@2x.png": (256, 256),
+    }
+    for name, min_size in required.items():
+        path = brand / name
+        assert path.is_file(), f"Missing brand asset: {path}"
+        assert path.stat().st_size > 0
+        if name.startswith("icon"):
+            # Square icons have exact dimensions from our build step.
+            from PIL import Image
+
+            with Image.open(path) as image:
+                assert image.size == min_size, f"{name} has size {image.size}"
+        else:
+            from PIL import Image
+
+            with Image.open(path) as image:
+                assert min(image.size) >= min_size[0], f"{name} is too small"

@@ -1,7 +1,7 @@
 {
   "domain": "energy_sharing",
   "name": "Energy Sharing",
-  "codeowners": ["@local"],
+  "codeowners": ["@gztproject"],
   "config_flow": true,
   "dependencies": [],
   "documentation": "https://github.com/gztproject/Souporaba",
