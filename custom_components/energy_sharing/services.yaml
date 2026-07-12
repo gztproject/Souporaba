@@ -1,0 +1,20 @@
+process_now:
+  name: Process now
+  description: Attempt to process the latest completed interval for the selected Energy Sharing device.
+  target:
+    device:
+      integration: energy_sharing
+
+reset_totals:
+  name: Reset totals
+  description: Reset all cumulative energy totals and interval counters. Source Utility Meters are not changed.
+  target:
+    device:
+      integration: energy_sharing
+  fields:
+    confirm:
+      name: Confirm reset
+      description: Must be set to true to confirm resetting cumulative totals.
+      required: true
+      selector:
+        boolean:
