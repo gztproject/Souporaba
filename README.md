@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo.png" alt="Energy Sharing logo" width="200">
+</p>
+
 # Energy Sharing
 
 Home Assistant custom integration that calculates **solar energy sharing settlement** between an **Oddajnik (Provider)** and a **Prejemnik (Receiver)** using **cumulative energy counters** and an **internal 15-minute interval engine**.
