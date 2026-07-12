@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="logo.png" alt="Energy Sharing logo" width="200">
+  <img src="graphics/banner.png" alt="Energy Sharing" width="640">
 </p>
 
 # Energy Sharing
