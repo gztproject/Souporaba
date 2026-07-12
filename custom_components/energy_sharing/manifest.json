@@ -4,10 +4,10 @@
   "codeowners": ["@local"],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/local/energy-sharing",
+  "documentation": "https://github.com/gztproject/Souporaba",
   "integration_type": "device",
   "iot_class": "calculated",
-  "issue_tracker": "https://github.com/local/energy-sharing/issues",
+  "issue_tracker": "https://github.com/gztproject/Souporaba/issues",
   "requirements": [],
   "version": "0.1.0"
 }

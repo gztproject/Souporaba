@@ -59,6 +59,28 @@ Versions that used 15-minute Utility Meter interval sources (`last_period` / `la
 
 ## Development
 
+### Branching
+
+| Branch | Purpose |
+| `master` | Stable releases only; each release is tagged (`vX.Y.Z`) |
+| `dev` | Integration branch for ongoing work |
+| `feature/*` | New features — branch from `dev`, merge back to `dev` |
+| `bugfix/*` | Bug fixes — branch from `dev`, merge back to `dev` |
+| `hotfix/*` | Urgent production fixes — branch from `master`, merge to `master` and `dev` |
+
+**Day-to-day workflow**
+
+1. Branch from `dev`: `git checkout dev && git pull && git checkout -b feature/my-change`
+2. Open a PR into `dev` when ready.
+3. For a release: merge `dev` → `master`, bump `custom_components/energy_sharing/manifest.json` version, tag, and create a GitHub Release.
+4. Merge `master` back into `dev` so both branches stay aligned.
+
+**Versioning (HACS)**
+
+HACS reads the version from `manifest.json`. Bump that field for every release, then tag the commit (e.g. `v0.1.1`) and publish a GitHub Release.
+
+### Local setup
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
