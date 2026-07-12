@@ -3,51 +3,64 @@
     "step": {
       "user": {
         "title": "Energy Sharing setup",
-        "description": "Configure solar energy sharing settlement between households. Select the receiving household grid-import Utility Meter, the allocated shared-energy Utility Meter, and how the allocation percentage is provided.",
+        "description": "Configure solar energy sharing settlement on the receiving household Home Assistant instance. Select the provider export interval source, receiver grid import interval source, allocation percentage mode, and optionally a reported allocated energy source for reconciliation.",
         "data": {
           "name": "Integration name",
-          "grid_import_entity": "Grid import Utility Meter (15 min)",
-          "shared_energy_entity": "Allocated shared energy Utility Meter (15 min)",
-          "percentage_mode": "Allocation percentage source",
-          "percentage_entity": "Allocation percentage entity",
-          "fixed_percentage": "Fixed allocation percentage"
+          "provider_export_source": "Provider export interval source",
+          "receiver_import_source": "Receiver grid import interval source",
+          "reported_allocation_source": "Reported allocated energy interval source (optional)",
+          "allocation_percentage_mode": "Allocation percentage source",
+          "allocation_percentage_source": "Allocation percentage entity",
+          "fixed_allocation_percentage": "Fixed allocation percentage"
         },
         "data_description": {
-          "grid_import_entity": "Utility Meter reporting receiving household grid import for the last completed interval (must expose last_period).",
-          "shared_energy_entity": "Utility Meter reporting allocated shared energy for the last completed interval (must expose last_period).",
-          "percentage_entity": "Entity providing the allocation percentage, such as an input_number or sensor.",
-          "fixed_percentage": "Fixed allocation percentage stored in the integration options."
+          "provider_export_source": "Utility Meter or compatible entity exposing the provider household full grid export for the last completed interval (last_period, last_reset).",
+          "receiver_import_source": "Utility Meter or compatible entity exposing the receiving household grid import for the last completed interval.",
+          "reported_allocation_source": "Optional Utility Meter reporting the provider-side allocated energy for reconciliation only.",
+          "allocation_percentage_source": "Entity providing the allocation percentage, such as an input_number, sensor, or number entity.",
+          "fixed_allocation_percentage": "Fixed allocation percentage stored in integration options."
         }
       }
     },
     "error": {
-      "duplicate_entities": "The grid import and shared energy entities must be different.",
-      "invalid_utility_meter": "The selected entity is unavailable or does not expose a valid last_period attribute.",
-      "invalid_percentage_entity": "The selected percentage entity is unavailable or does not provide a numeric value."
+      "duplicate_sources": "Each selected source entity must be unique.",
+      "source_missing": "The selected entity does not exist.",
+      "source_unavailable": "The selected entity is unavailable.",
+      "last_period_missing": "The selected entity does not expose last_period.",
+      "last_reset_missing": "The selected entity does not expose a valid last_reset timestamp.",
+      "invalid_interval_value": "The selected entity last_period is missing or invalid.",
+      "unsupported_energy_unit": "The selected entity uses an unsupported energy unit. Use Wh or kWh.",
+      "percentage_invalid": "The allocation percentage entity is unavailable or invalid."
     },
     "abort": {
-      "already_configured": "This entity pair is already configured."
+      "already_configured": "This provider export and receiver import pair is already configured."
     }
   },
   "options": {
     "step": {
       "init": {
         "title": "Energy Sharing options",
-        "description": "Source entities: grid import `{grid_import_entity}`, shared energy `{shared_energy_entity}`, percentage mode `{percentage_mode}`{percentage_entity, select, other {, percentage entity `{percentage_entity}`}, empty {}}. These identity settings cannot be changed here.",
+        "description": "Immutable sources: provider export `{provider_export_source}`, receiver import `{receiver_import_source}`. Update allocation percentage, reconciliation, and timing settings here.",
         "data": {
           "name": "Integration name",
+          "allocation_percentage_mode": "Allocation percentage source",
+          "allocation_percentage_source": "Allocation percentage entity",
+          "fixed_allocation_percentage": "Fixed allocation percentage",
+          "reported_allocation_source": "Reported allocated energy interval source (optional)",
           "interval_minutes": "Interval length (minutes)",
           "processing_delay": "Processing delay after interval boundary (seconds)",
           "max_wait": "Maximum wait for synchronized inputs (seconds)",
           "retry_interval": "Retry interval (seconds)",
           "reset_tolerance": "Maximum reset timestamp difference (seconds)",
-          "fixed_percentage": "Fixed allocation percentage",
+          "allocation_tolerance_kwh": "Allocation reconciliation tolerance (kWh)",
+          "allocation_tolerance_pct": "Allocation reconciliation tolerance (%)",
+          "reconciliation_failure_mode": "Reconciliation failure mode",
           "allow_percentage_above_100": "Allow allocation percentage above 100%"
         }
       }
     },
     "error": {
-      "invalid_percentage": "The allocation percentage must be greater than zero."
+      "percentage_invalid": "The allocation percentage must be greater than zero."
     }
   },
   "selector": {
@@ -56,27 +69,45 @@
         "percentage_mode_entity": "Read from entity",
         "percentage_mode_fixed": "Use fixed percentage"
       }
+    },
+    "reconciliation_failure_mode": {
+      "options": {
+        "reconciliation_mode_warn": "Warn and process with calculated values",
+        "reconciliation_mode_skip_interval": "Skip interval"
+      }
     }
   },
   "entity": {
     "sensor": {
-      "imported_last_interval": {
-        "name": "Imported energy (last interval)"
+      "provider_export_last_interval": {
+        "name": "Provider export (last interval)"
       },
-      "shared_last_interval": {
-        "name": "Allocated shared energy (last interval)"
+      "receiver_import_last_interval": {
+        "name": "Receiver grid import (last interval)"
       },
-      "exported_last_interval": {
-        "name": "Inferred provider export (last interval)"
+      "calculated_allocated_last_interval": {
+        "name": "Calculated allocated energy (last interval)"
       },
-      "used_last_interval": {
+      "reported_allocated_last_interval": {
+        "name": "Reported allocated energy (last interval)"
+      },
+      "allocation_difference_last_interval": {
+        "name": "Allocation difference (last interval)"
+      },
+      "used_shared_last_interval": {
         "name": "Used shared energy (last interval)"
       },
-      "unused_last_interval": {
+      "unused_shared_last_interval": {
         "name": "Unused shared energy (last interval)"
       },
-      "billable_last_interval": {
+      "billable_grid_last_interval": {
         "name": "Billable grid energy (last interval)"
+      },
+      "effective_allocation_percentage_last_interval": {
+        "name": "Effective allocation percentage (last interval)"
+      },
+      "allocation_difference_pct_last_interval": {
+        "name": "Allocation difference percentage (last interval)"
       },
       "required_share_last_interval": {
         "name": "Required allocation percentage (last interval)"
@@ -90,32 +121,50 @@
       "consumption_coverage_last_interval": {
         "name": "Consumption coverage (last interval)"
       },
-      "total_imported": {
-        "name": "Total imported energy"
+      "total_provider_export": {
+        "name": "Total provider export processed"
       },
-      "total_shared": {
-        "name": "Total allocated shared energy"
+      "total_receiver_import": {
+        "name": "Total receiver grid import"
       },
-      "total_used": {
+      "total_calculated_allocated": {
+        "name": "Total calculated allocated energy"
+      },
+      "total_used_shared": {
         "name": "Total used shared energy"
       },
-      "total_unused": {
+      "total_unused_shared": {
         "name": "Total unused shared energy"
       },
-      "total_billable": {
+      "total_billable_grid": {
         "name": "Total billable grid energy"
+      },
+      "interval_start": {
+        "name": "Interval start"
+      },
+      "interval_end": {
+        "name": "Interval end"
       },
       "last_processed_interval": {
         "name": "Last processed interval"
       },
+      "reconciliation_status": {
+        "name": "Reconciliation status"
+      },
+      "integration_status": {
+        "name": "Processing status"
+      },
+      "last_skip_reason": {
+        "name": "Last skip/failure reason"
+      },
       "processed_interval_count": {
-        "name": "Processed interval count"
+        "name": "Successful interval count"
       },
       "skipped_interval_count": {
         "name": "Skipped interval count"
       },
-      "integration_status": {
-        "name": "Integration status"
+      "reconciliation_mismatch_count": {
+        "name": "Reconciliation mismatch count"
       },
       "current_allocation_percentage": {
         "name": "Current allocation percentage"
@@ -145,6 +194,7 @@
     "inputs_unavailable": "Inputs unavailable",
     "inputs_unsynchronized": "Inputs unsynchronized",
     "invalid_input": "Invalid input",
-    "percentage_invalid": "Percentage invalid"
+    "percentage_invalid": "Percentage invalid",
+    "reconciliation_mismatch": "Reconciliation mismatch"
   }
 }
