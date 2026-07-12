@@ -1,128 +1,121 @@
 # Input entities
 
-This page explains the **canonical input model** used by the Energy Sharing integration. The integration runs on the **receiving household's** Home Assistant instance and reads interval-based energy sources that all describe the **same completed settlement interval**.
+The Energy Sharing integration **no longer requires Utility Meter helpers** or entities that expose `last_period` and `last_reset`.
+
+Instead, it reads **cumulative energy counters** and creates aligned 15-minute settlement intervals internally on the receiving household Home Assistant instance.
 
 ## Overview table
 
-| Input | Required | Example |
-| Provider export, last interval | Yes | `sensor.trata_solaredge_oddaja_v_omrezje_15min` |
-| Receiver import, last interval | Yes | `sensor.hodnik_elektro_stevec_prevzem_iz_omrezja_15min` |
-| Allocation percentage | Yes | `input_number.trenutni_odstotek_souporabe` or fixed value |
-| Reported allocated energy | No | `sensor.trata_solaredge_gn_souporaba_15min` |
+| Input | Required | Meaning |
+| Receiver total grid import | Yes | Cumulative energy imported by the receiving household |
+| Total received shared energy | Yes | Cumulative energy allocated to the receiver |
+| Fixed allocation percentage | Conditional | Required when provider export is not supplied |
+| Provider total grid export | Conditional | Full cumulative exported surplus of the provider |
 
-The entity IDs above are **examples only**. You select your real entities in the config flow.
+**At least one** of fixed allocation percentage or provider total grid export must be configured.
 
-## 1. Provider export interval source (required)
+Example entity IDs (not hard-coded):
 
-**Semantic name:** `provider_export_source`
+| Role | Example |
+| Receiver total grid import | `sensor.hodnik_elektro_stevec_prevzem_iz_omrezja` |
+| Total received shared energy | `sensor.trata_solaredge_gn_souporaba_skupaj` |
+| Provider total grid export | `sensor.trata_solaredge_skupna_oddana_energija` |
+| Fixed allocation percentage | `7.0` in integration options |
 
-**Value used:** `provider_exported_kwh`
+## Operating modes
 
-This entity represents the **provider household's full energy export to the grid** during the last completed settlement interval, **before** applying any allocation percentage.
+### A. Percentage-only mode
 
-Use a Utility Meter or compatible entity that exposes:
+**Inputs:** receiver total import, shared energy total, fixed allocation percentage.
 
-- `last_period` — energy exported in the last completed interval
-- `last_reset` — timestamp when that interval ended
-- `unit_of_measurement` — `kWh` or `Wh`
+Provider interval export is **inferred**:
 
-The integration uses this value **directly** as the authoritative provider export input.
+`inferred_provider_export = shared_interval / (fixed_percentage / 100)`
 
-## 2. Receiver grid import interval source (required)
+This value is labeled **inferred**, not directly measured.
 
-**Semantic name:** `receiver_import_source`
+### B. Export-only mode
 
-**Value used:** `receiver_imported_kwh`
+**Inputs:** receiver total import, shared energy total, provider total export.
 
-This entity represents the **receiving household's energy imported from the grid** during the same last completed settlement interval.
+Settlement uses measured provider export deltas. The contractual percentage is not configured, but an **effective allocation percentage** can be calculated when provider export is greater than zero.
 
-It must expose `last_period`, `last_reset`, and `unit_of_measurement` in the same way as the provider export source.
+### C. Export + percentage mode (preferred)
 
-## 3. Allocation percentage (required)
+**Inputs:** receiver total import, shared energy total, provider total export, fixed allocation percentage.
 
-Two mutually exclusive modes are supported:
+Provider export is the authoritative measured export. Expected shared energy is:
 
-### A. Entity mode
+`expected_shared = provider_export_interval × fixed_percentage / 100`
 
-Select a numeric entity such as `input_number.trenutni_odstotek_souporabe`. Suitable `sensor` or `number` entities are also supported.
+The integration compares this with the actual shared-energy interval derived from the cumulative shared-energy counter. This mode supports the strongest reconciliation and diagnostics.
 
-**Semantic name:** `allocation_percentage_source`
+## Expected source properties
 
-### B. Fixed mode
+Each cumulative source should provide:
 
-Store the percentage directly in integration options.
+- a numeric, non-negative state;
+- `unit_of_measurement` of `kWh` or `Wh`;
+- normally monotonic increasing under normal operation.
 
-**Semantic name:** `fixed_allocation_percentage`
+The integration validates by semantics and unit, not only by metadata such as `device_class` or `state_class`.
 
-The effective percentage used for a processed interval is **persisted with that interval's result**. Seven percent is only a common real-world setting — the integration does not assume 7%.
+Entities may be MQTT-mirrored from a remote Home Assistant instance. MQTT transport is outside this integration's responsibility.
 
-## 4. Reported allocated energy interval source (optional)
+## Internal 15-minute interval engine
 
-**Semantic name:** `reported_allocation_source`
+The integration aligns intervals to wall-clock boundaries (`:00`, `:15`, `:30`, `:45` for 15-minute intervals).
 
-**Value used:** `reported_allocated_kwh`
+At each boundary plus the configured processing delay:
 
-Example: `sensor.trata_solaredge_gn_souporaba_15min`
+1. Read cumulative source totals.
+2. Compare them with persisted boundary snapshots.
+3. Calculate interval deltas.
+4. Calculate settlement values.
+5. Persist snapshots and results atomically.
 
-This optional entity reports the allocation calculated or reported by the provider side for the last completed interval. It is used for **reconciliation and diagnostics only**. It is **not** used to reconstruct provider export.
+### First setup
 
-When configured, reconciliation passes if **either**:
+The **first valid boundary establishes a baseline only**. No energy is added to integration-owned cumulative totals for that partial interval. Status: `initializing_baseline`.
 
-- `abs(reported_allocated_kwh - calculated_allocated_kwh) <= allocation_tolerance_kwh`, **or**
+### Counter resets
+
+If a cumulative counter decreases, the integration treats this as a **counter reset or source replacement**:
+
+- the affected interval is skipped;
+- a new baseline is established from the current readings;
+- integration-owned cumulative totals are **not** decreased.
+
+### Skipped intervals and snapshots
+
+Raw source snapshots **always advance** at every valid boundary read, even when settlement is skipped. This prevents a skipped interval from being merged into the next interval.
+
+Reconciliation `skip_interval` mode skips accumulation of settlement totals but still advances raw snapshots.
+
+### Limitations
+
+Without a source-provided measurement timestamp on the cumulative entities, exact boundary attribution depends on how quickly the source entities update after each boundary. Optional timestamp attribute names can be configured in the options flow.
+
+Missed historical intervals cannot always be reconstructed when only the latest cumulative reading is available.
+
+## Reconciliation (export + percentage mode)
+
+Reconciliation passes when **either**:
+
+- `abs(shared - expected_shared) <= allocation_tolerance_kwh`, **or**
 - `allocation_difference_pct <= allocation_tolerance_pct`
 
-## Required attributes: `last_period` and `last_reset`
+Failure modes:
 
-Every required interval source (and the optional reported source when configured) must expose:
+- **warn** — process using actual shared-energy delta and record a warning;
+- **skip_interval** — do not add the interval to cumulative settlement totals.
 
-| Attribute | Meaning |
-|-----------|---------|
-| `last_period` | Finite, non-negative energy value for the last completed interval |
-| `last_reset` | Parseable ISO timestamp marking the interval boundary |
-| `unit_of_measurement` | `kWh` or `Wh` |
+## Optional timestamp attributes
 
-### Inspect attributes in Developer Tools → States
+For advanced setups, you may configure an attribute name that contains the source measurement timestamp, for example `meter_timestamp` or `reading_time`. These are optional and not required for initial setup.
 
-1. Open **Developer Tools → States**
-2. Search for your entity
-3. Confirm the attributes look like this:
+## Changing sources
 
-```yaml
-state: 0.12
-attributes:
-  last_period: 0.123
-  last_reset: 2026-07-12T14:15:00+02:00
-  unit_of_measurement: kWh
-```
+Receiver total import and shared energy total are identity settings in the config entry. Changing them requires removing and re-adding the integration, or using a dedicated reconfigure flow if available.
 
-## Supported units: Wh and kWh
-
-All energy values are normalized internally to **kWh**. Unsupported or ambiguous units are rejected with a clear error. The integration never silently assumes an unknown unit is kWh.
-
-## Why full provider export is preferred
-
-Older or simplified setups sometimes try to **reconstruct** provider export by dividing an already allocated energy value by the current percentage (for example, allocated ÷ 7%). That approach is fragile because:
-
-- the percentage may change over time
-- allocated values may already include rounding or provider-side logic
-- reconciliation becomes impossible
-
-This integration therefore requires the **full provider export interval source** as authoritative input and calculates:
-
-`calculated_allocated_kwh = provider_exported_kwh × allocation_percentage / 100`
-
-## Why all sources must describe the same 15-minute interval
-
-Settlement is performed **once per completed interval**. The integration compares normalized UTC `last_reset` timestamps and uses the reset boundary as a stable interval ID. Values from different intervals are never combined.
-
-With the default 15-minute interval, sources should reset at `:00`, `:15`, `:30`, and `:45`.
-
-## MQTT mirroring
-
-Entities may be local MQTT-mirrored copies of remote provider-household sensors. The integration does not need to know how an entity arrived in Home Assistant, and MQTT transport configuration is **outside** this integration's responsibility.
-
-## Changing source entities later
-
-Provider export and receiver import are identity settings stored in the config entry data. To change them, remove and re-add the integration, or create a new config entry.
-
-Allocation percentage mode, optional reported source, timing, tolerances, and reconciliation behavior can be changed later through the **options flow**.
+Provider export source, fixed percentage, timing, tolerances, and timestamp attributes can be changed in the options flow. After major source changes, use **Reinitialize baseline** if needed.
