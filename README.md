@@ -4,6 +4,11 @@
 
 # Energy Sharing
 
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/integration)
+[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2025.1.0+-41BDF5.svg?style=for-the-badge)](https://www.home-assistant.io/)
+[![GitHub release](https://img.shields.io/github/v/release/gztproject/Souporaba?style=for-the-badge)](https://github.com/gztproject/Souporaba/releases)
+[![License](https://img.shields.io/github/license/gztproject/Souporaba?style=for-the-badge)](LICENSE)
+
 Home Assistant custom integration that calculates **solar energy sharing settlement** between an **Oddajnik (Provider)** and a **Prejemnik (Receiver)** using **cumulative energy counters** and an **internal 15-minute interval engine**.
 
 The integration runs on the **Prejemnik (Receiver)** Home Assistant instance. It does **not** require Utility Meter helpers or `last_period` / `last_reset` attributes.
@@ -40,7 +45,28 @@ The first completed boundary after setup establishes a **baseline snapshot only*
 
 ## Installation
 
-Copy `custom_components/energy_sharing` into `config/custom_components/` and restart Home Assistant, or install via HACS.
+### HACS (recommended)
+
+Requires [HACS](https://hacs.xyz/docs/setup/download) to be installed first.
+
+1. Open **HACS** → **Integrations**
+2. Open the **⋮** menu (top right) → **Custom repositories**
+3. Add repository URL:
+
+   `https://github.com/gztproject/Souporaba`
+
+4. Category: **Integration** → **Add**
+5. Search for **Energy Sharing** in HACS integrations and select **Download**
+6. **Restart Home Assistant**
+7. Go to **Settings → Devices & services → Add integration** and search for **Energy Sharing**
+
+Track the `master` branch for stable releases. Tagged releases are published on [GitHub Releases](https://github.com/gztproject/Souporaba/releases).
+
+### Manual
+
+1. Copy `custom_components/energy_sharing` into `config/custom_components/`
+2. Restart Home Assistant
+3. Go to **Settings → Devices & services → Add integration** and search for **Energy Sharing**
 
 Brand images live in `custom_components/energy_sharing/brand/` (`icon.png`, `logo.png`, and `@2x` variants). Home Assistant **2026.3+** serves them automatically. On older Home Assistant versions, the integrations UI may still show a generic placeholder until you upgrade.
 
