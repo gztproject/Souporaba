@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -20,22 +21,28 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .const import (
-    ATTR_LAST_RESET,
+    CONF_ALLOCATION_PERCENTAGE_MODE,
+    CONF_ALLOCATION_PERCENTAGE_SOURCE,
+    CONF_ALLOCATION_TOLERANCE_KWH,
+    CONF_ALLOCATION_TOLERANCE_PCT,
     CONF_ALLOW_PERCENTAGE_ABOVE_100,
-    CONF_FIXED_PERCENTAGE,
-    CONF_GRID_IMPORT_ENTITY,
+    CONF_FIXED_ALLOCATION_PERCENTAGE,
     CONF_INTERVAL_MINUTES,
     CONF_MAX_WAIT,
-    CONF_PERCENTAGE_ENTITY,
-    CONF_PERCENTAGE_MODE,
     CONF_PROCESSING_DELAY,
+    CONF_PROVIDER_EXPORT_SOURCE,
+    CONF_RECEIVER_IMPORT_SOURCE,
+    CONF_RECONCILIATION_FAILURE_MODE,
+    CONF_REPORTED_ALLOCATION_SOURCE,
     CONF_RESET_TOLERANCE,
     CONF_RETRY_INTERVAL,
-    CONF_SHARED_ENERGY_ENTITY,
-    DEFAULT_FIXED_PERCENTAGE,
+    DEFAULT_ALLOCATION_TOLERANCE_KWH,
+    DEFAULT_ALLOCATION_TOLERANCE_PCT,
+    DEFAULT_FIXED_ALLOCATION_PERCENTAGE,
     DEFAULT_INTERVAL_MINUTES,
     DEFAULT_MAX_WAIT,
     DEFAULT_PROCESSING_DELAY,
+    DEFAULT_RECONCILIATION_FAILURE_MODE,
     DEFAULT_RESET_TOLERANCE,
     DEFAULT_RETRY_INTERVAL,
     DOMAIN,
@@ -43,6 +50,10 @@ from .const import (
     MODEL,
     PERCENTAGE_MODE_ENTITY,
     PERCENTAGE_MODE_FIXED,
+    RECONCILIATION_MATCHED,
+    RECONCILIATION_MISMATCH_WARN,
+    RECONCILIATION_MODE_SKIP_INTERVAL,
+    RECONCILIATION_NOT_CONFIGURED,
     SERVICE_CONFIRM,
     SERVICE_PROCESS_NOW,
     SERVICE_RESET_TOTALS,
@@ -52,32 +63,80 @@ from .const import (
     STATUS_PERCENTAGE_INVALID,
     STATUS_PROCESSING,
     STATUS_READY,
+    STATUS_RECONCILIATION_MISMATCH,
     STATUS_WAITING,
     STORAGE_KEY,
     STORAGE_VERSION,
 )
 from .helpers import (
+    IntervalSourceReading,
+    IntervalSourceValidationError,
     count_missed_intervals,
     get_expected_interval_end,
-    interval_id_from_end,
+    interval_id_from_reset,
     interval_start_from_end,
-    parse_reset_timestamp,
+    read_interval_source,
     read_percentage,
-    read_utility_meter_last_period_kwh,
     reset_matches_interval_end,
-    resets_match,
+    validate_sources_synchronized,
 )
 from .models import (
     IntervalResult,
     SkipRecord,
     StorageData,
     calculate_interval,
+    evaluate_reconciliation,
 )
 
 if TYPE_CHECKING:
     from . import EnergySharingConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
+
+
+@dataclass(slots=True)
+class _SynchronizedInputs:
+    """Validated synchronized inputs for one interval."""
+
+    interval_id: str
+    interval_end: datetime
+    provider_exported_kwh: float
+    receiver_imported_kwh: float
+    reported_allocated_kwh: float | None
+    provider_export_source: str
+    receiver_import_source: str
+    reported_allocation_source: str | None
+
+
+class _InputsUnavailableError(Exception):
+    """Raised when source entities are unavailable."""
+
+
+class _InputsUnsynchronizedError(Exception):
+    """Raised when source entities are not synchronized."""
+
+    def __init__(self, reason: str) -> None:
+        """Initialize with a reason."""
+        super().__init__(reason)
+        self.reason = reason
+
+
+class _InvalidInputError(Exception):
+    """Raised when source entity data is invalid."""
+
+    def __init__(self, reason: str) -> None:
+        """Initialize with a reason."""
+        super().__init__(reason)
+        self.reason = reason
+
+
+class _PercentageInvalidError(Exception):
+    """Raised when the allocation percentage is invalid."""
+
+    def __init__(self, reason: str) -> None:
+        """Initialize with a reason."""
+        super().__init__(reason)
+        self.reason = reason
 
 
 class EnergySharingManager:
@@ -100,6 +159,7 @@ class EnergySharingManager:
         self._processing_lock = asyncio.Lock()
         self._retry_deadline: datetime | None = None
         self._retry_warning_logged = False
+        self._reconciliation_warning_logged = False
         self._entity_update_callbacks: list[CALLBACK_TYPE] = []
         self._update_listeners: list[Callable[[], None]] = []
 
@@ -140,9 +200,13 @@ class EnergySharingManager:
     @property
     def allow_percentage_above_100(self) -> bool:
         """Return whether percentages above 100 are allowed."""
-        return bool(
-            self.get_option(CONF_ALLOW_PERCENTAGE_ABOVE_100, False)
-        )
+        return bool(self.get_option(CONF_ALLOW_PERCENTAGE_ABOVE_100, False))
+
+    @property
+    def reported_allocation_source(self) -> str | None:
+        """Return optional reported allocation source entity ID."""
+        source = self.get_option(CONF_REPORTED_ALLOCATION_SOURCE)
+        return str(source) if source else None
 
     def add_update_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
         """Register a listener for data updates."""
@@ -194,6 +258,15 @@ class EnergySharingManager:
         for unsub in self._entity_update_callbacks:
             unsub()
         self._entity_update_callbacks.clear()
+
+    def async_reconfigure(self) -> None:
+        """Reconfigure after options or entry update."""
+        for unsub in self._entity_update_callbacks:
+            unsub()
+        self._entity_update_callbacks.clear()
+        self._subscribe_source_entities()
+        self._schedule_next_processing()
+        self._notify_update()
 
     def _register_services(self) -> None:
         """Register integration services once."""
@@ -253,13 +326,16 @@ class EnergySharingManager:
     def _subscribe_source_entities(self) -> None:
         """Subscribe to source entity updates to help retries."""
         entity_ids = [
-            self.entry.data[CONF_GRID_IMPORT_ENTITY],
-            self.entry.data[CONF_SHARED_ENERGY_ENTITY],
+            self.entry.data[CONF_PROVIDER_EXPORT_SOURCE],
+            self.entry.data[CONF_RECEIVER_IMPORT_SOURCE],
         ]
-        if self.entry.data.get(CONF_PERCENTAGE_MODE) == PERCENTAGE_MODE_ENTITY:
-            percentage_entity = self.entry.data.get(CONF_PERCENTAGE_ENTITY)
-            if percentage_entity:
-                entity_ids.append(percentage_entity)
+        reported = self.reported_allocation_source
+        if reported:
+            entity_ids.append(reported)
+        if self.get_option(CONF_ALLOCATION_PERCENTAGE_MODE) == PERCENTAGE_MODE_ENTITY:
+            pct_entity = self.get_option(CONF_ALLOCATION_PERCENTAGE_SOURCE)
+            if pct_entity:
+                entity_ids.append(str(pct_entity))
 
         @callback
         def _source_changed(event: Any) -> None:
@@ -359,7 +435,9 @@ class EnergySharingManager:
         """Core processing attempt with retry support."""
         now = dt_util.now()
         expected_end = get_expected_interval_end(now, self.interval_minutes)
-        expected_interval_id = interval_id_from_end(expected_end)
+        expected_interval_id = interval_id_from_reset(
+            dt_util.as_utc(dt_util.as_local(expected_end))
+        )
 
         if self._retry_deadline is None:
             self._retry_deadline = now + timedelta(seconds=self.max_wait)
@@ -384,11 +462,11 @@ class EnergySharingManager:
         except _InvalidInputError as err:
             self._clear_retry_state()
             self.status = STATUS_INVALID_INPUT
-            await self._async_record_skip(err.reason, inputs.interval_id)
+            await self._async_record_skip(err.reason, None)
             return f"skipped:{err.reason}"
 
         try:
-            percentage = await self._async_read_percentage()
+            percentage, percentage_source = await self._async_read_percentage()
         except _PercentageInvalidError as err:
             self._clear_retry_state()
             self.status = STATUS_PERCENTAGE_INVALID
@@ -430,10 +508,83 @@ class EnergySharingManager:
         )
 
         calculations = calculate_interval(
-            inputs.imported_kwh,
-            inputs.shared_kwh,
+            inputs.provider_exported_kwh,
+            inputs.receiver_imported_kwh,
             percentage,
         )
+
+        reconciliation_status = RECONCILIATION_NOT_CONFIGURED
+        allocation_difference_kwh: float | None = None
+        allocation_difference_pct: float | None = None
+        reported_allocated_kwh = inputs.reported_allocated_kwh
+
+        if reported_allocated_kwh is not None:
+            tolerance_kwh = float(
+                self.get_option(
+                    CONF_ALLOCATION_TOLERANCE_KWH, DEFAULT_ALLOCATION_TOLERANCE_KWH
+                )
+            )
+            tolerance_pct = float(
+                self.get_option(
+                    CONF_ALLOCATION_TOLERANCE_PCT, DEFAULT_ALLOCATION_TOLERANCE_PCT
+                )
+            )
+            reconciliation = evaluate_reconciliation(
+                float(calculations["calculated_allocated_kwh"]),
+                reported_allocated_kwh,
+                tolerance_kwh,
+                tolerance_pct,
+            )
+            allocation_difference_kwh = float(
+                reconciliation["allocation_difference_kwh"]
+            )
+            allocation_difference_pct = float(
+                reconciliation["allocation_difference_pct"]
+            )
+
+            if reconciliation["reconciled"]:
+                reconciliation_status = RECONCILIATION_MATCHED
+            else:
+                failure_mode = self.get_option(
+                    CONF_RECONCILIATION_FAILURE_MODE,
+                    DEFAULT_RECONCILIATION_FAILURE_MODE,
+                )
+                if failure_mode == RECONCILIATION_MODE_SKIP_INTERVAL:
+                    self._clear_retry_state()
+                    self.status = STATUS_RECONCILIATION_MISMATCH
+                    reason = (
+                        f"reconciliation_mismatch_skip:"
+                        f"diff_kwh={allocation_difference_kwh:.6f},"
+                        f"diff_pct={allocation_difference_pct:.2f}"
+                    )
+                    self.data.reconciliation_mismatch_count += 1
+                    await self._async_record_skip(reason, inputs.interval_id)
+                    if not self._reconciliation_warning_logged:
+                        _LOGGER.warning(
+                            "Reconciliation mismatch for %s interval %s, skipping "
+                            "(reported=%.6f kWh, calculated=%.6f kWh)",
+                            self.entry.title,
+                            inputs.interval_id,
+                            reported_allocated_kwh,
+                            calculations["calculated_allocated_kwh"],
+                        )
+                        self._reconciliation_warning_logged = True
+                    return f"skipped:{reason}"
+
+                reconciliation_status = RECONCILIATION_MISMATCH_WARN
+                self.data.reconciliation_mismatch_count += 1
+                self.status = STATUS_RECONCILIATION_MISMATCH
+                if not self._reconciliation_warning_logged:
+                    _LOGGER.warning(
+                        "Reconciliation mismatch for %s interval %s, processing "
+                        "with calculated values (reported=%.6f kWh, "
+                        "calculated=%.6f kWh)",
+                        self.entry.title,
+                        inputs.interval_id,
+                        reported_allocated_kwh,
+                        calculations["calculated_allocated_kwh"],
+                    )
+                    self._reconciliation_warning_logged = True
 
         interval_start = interval_start_from_end(
             inputs.interval_end, self.interval_minutes
@@ -442,27 +593,34 @@ class EnergySharingManager:
             interval_id=inputs.interval_id,
             interval_start=interval_start,
             interval_end=inputs.interval_end,
-            imported_kwh=inputs.imported_kwh,
-            shared_kwh=inputs.shared_kwh,
-            exported_kwh=calculations["exported_kwh"],
-            used_kwh=float(calculations["used_kwh"]),
-            unused_kwh=float(calculations["unused_kwh"]),
-            billable_kwh=float(calculations["billable_kwh"]),
+            provider_exported_kwh=inputs.provider_exported_kwh,
+            receiver_imported_kwh=inputs.receiver_imported_kwh,
+            calculated_allocated_kwh=float(calculations["calculated_allocated_kwh"]),
+            used_shared_kwh=float(calculations["used_shared_kwh"]),
+            unused_shared_kwh=float(calculations["unused_shared_kwh"]),
+            billable_grid_kwh=float(calculations["billable_grid_kwh"]),
             required_share_pct=calculations["required_share_pct"],
             ideal_share_pct=calculations["ideal_share_pct"],
             allocation_utilization_pct=calculations["allocation_utilization_pct"],
             consumption_coverage_pct=calculations["consumption_coverage_pct"],
             allocation_percentage=percentage,
-            grid_import_entity=self.entry.data[CONF_GRID_IMPORT_ENTITY],
-            shared_energy_entity=self.entry.data[CONF_SHARED_ENERGY_ENTITY],
+            reconciliation_status=reconciliation_status,
+            provider_export_source=inputs.provider_export_source,
+            receiver_import_source=inputs.receiver_import_source,
             processed_at=dt_util.utcnow(),
+            reported_allocated_kwh=reported_allocated_kwh,
+            allocation_difference_kwh=allocation_difference_kwh,
+            allocation_difference_pct=allocation_difference_pct,
+            reported_allocation_source=inputs.reported_allocation_source,
+            allocation_percentage_source=percentage_source,
         )
 
-        self.data.cumulative_imported += result.imported_kwh
-        self.data.cumulative_shared += result.shared_kwh
-        self.data.cumulative_used += result.used_kwh
-        self.data.cumulative_unused += result.unused_kwh
-        self.data.cumulative_billable += result.billable_kwh
+        self.data.cumulative_provider_export += result.provider_exported_kwh
+        self.data.cumulative_receiver_import += result.receiver_imported_kwh
+        self.data.cumulative_calculated_allocated += result.calculated_allocated_kwh
+        self.data.cumulative_used += result.used_shared_kwh
+        self.data.cumulative_unused += result.unused_shared_kwh
+        self.data.cumulative_billable += result.billable_grid_kwh
         self.data.processed_intervals += 1
         if missed > 0:
             self.data.skipped_intervals += missed
@@ -477,7 +635,9 @@ class EnergySharingManager:
         await self.storage.async_save(self.data.to_dict())
 
         self._clear_retry_state()
-        self.status = STATUS_READY
+        self._reconciliation_warning_logged = False
+        if reconciliation_status != RECONCILIATION_MISMATCH_WARN:
+            self.status = STATUS_READY
         self._notify_update()
 
         _LOGGER.info(
@@ -551,103 +711,128 @@ class EnergySharingManager:
             interval_id,
         )
 
-    async def _async_read_percentage(self) -> float:
-        """Read the effective allocation percentage."""
-        mode = self.entry.data[CONF_PERCENTAGE_MODE]
+    async def _async_read_percentage(self) -> tuple[float, str | None]:
+        """Read the effective allocation percentage and its source."""
+        mode = self.get_option(
+            CONF_ALLOCATION_PERCENTAGE_MODE, PERCENTAGE_MODE_ENTITY
+        )
         if mode == PERCENTAGE_MODE_FIXED:
-            return float(
-                self.get_option(CONF_FIXED_PERCENTAGE, DEFAULT_FIXED_PERCENTAGE)
+            return (
+                float(
+                    self.get_option(
+                        CONF_FIXED_ALLOCATION_PERCENTAGE,
+                        DEFAULT_FIXED_ALLOCATION_PERCENTAGE,
+                    )
+                ),
+                None,
             )
 
-        entity_id = self.entry.data.get(CONF_PERCENTAGE_ENTITY)
+        entity_id = self.get_option(CONF_ALLOCATION_PERCENTAGE_SOURCE)
         if not entity_id:
             raise _PercentageInvalidError("percentage_entity_missing")
 
-        state = self.hass.states.get(entity_id)
+        state = self.hass.states.get(str(entity_id))
         if state is None or state.state in ("unknown", "unavailable"):
             raise _PercentageInvalidError("percentage_unavailable")
 
         try:
-            return read_percentage(state)
+            return read_percentage(state), str(entity_id)
         except HomeAssistantError as err:
             raise _PercentageInvalidError(str(err)) from err
 
     async def _async_read_synchronized_inputs(
         self, expected_end: datetime
     ) -> _SynchronizedInputs:
-        """Read and validate synchronized utility meter inputs."""
-        grid_entity = self.entry.data[CONF_GRID_IMPORT_ENTITY]
-        shared_entity = self.entry.data[CONF_SHARED_ENERGY_ENTITY]
+        """Read and validate synchronized interval sources."""
+        provider_entity = self.entry.data[CONF_PROVIDER_EXPORT_SOURCE]
+        receiver_entity = self.entry.data[CONF_RECEIVER_IMPORT_SOURCE]
+        reported_entity = self.reported_allocation_source
 
-        grid_state = self.hass.states.get(grid_entity)
-        shared_state = self.hass.states.get(shared_entity)
+        provider_state = self.hass.states.get(provider_entity)
+        receiver_state = self.hass.states.get(receiver_entity)
 
-        if (
-            grid_state is None
-            or shared_state is None
-            or grid_state.state in ("unknown", "unavailable")
-            or shared_state.state in ("unknown", "unavailable")
-        ):
+        if provider_state is None or receiver_state is None:
             raise _InputsUnavailableError()
 
-        grid_reset = parse_reset_timestamp(
-            grid_state.attributes.get(ATTR_LAST_RESET)
-        )
-        shared_reset = parse_reset_timestamp(
-            shared_state.attributes.get(ATTR_LAST_RESET)
-        )
-        if grid_reset is None or shared_reset is None:
-            raise _InvalidInputError("missing_last_reset")
+        readings: list[IntervalSourceReading] = []
+        try:
+            provider_reading = read_interval_source(provider_state)
+            receiver_reading = read_interval_source(receiver_state)
+            readings = [provider_reading, receiver_reading]
+        except IntervalSourceValidationError as err:
+            raise _InvalidInputError(err.code) from err
 
-        if not resets_match(grid_reset, shared_reset, self.reset_tolerance):
-            raise _InputsUnsynchronizedError("reset_timestamps_differ")
-
-        interval_end = dt_util.as_local(grid_reset)
-        if not reset_matches_interval_end(
-            grid_reset, expected_end, self.reset_tolerance
-        ):
-            raise _InputsUnsynchronizedError("reset_not_matching_expected_interval")
-
-        interval_id = interval_id_from_end(interval_end)
+        reported_reading: IntervalSourceReading | None = None
+        if reported_entity:
+            reported_state = self.hass.states.get(reported_entity)
+            if reported_state is None:
+                raise _InputsUnavailableError()
+            try:
+                reported_reading = read_interval_source(reported_state)
+                readings.append(reported_reading)
+            except IntervalSourceValidationError as err:
+                raise _InvalidInputError(err.code) from err
 
         try:
-            imported_kwh = read_utility_meter_last_period_kwh(grid_state)
-            shared_kwh = read_utility_meter_last_period_kwh(shared_state)
-        except HomeAssistantError as err:
-            raise _InvalidInputError(str(err)) from err
+            reset_utc = validate_sources_synchronized(
+                readings, self.reset_tolerance
+            )
+        except IntervalSourceValidationError as err:
+            raise _InputsUnsynchronizedError(err.code) from err
+
+        if not reset_matches_interval_end(
+            reset_utc, expected_end, self.reset_tolerance
+        ):
+            raise _InputsUnsynchronizedError("source_intervals_unsynchronized")
+
+        interval_id = interval_id_from_reset(reset_utc)
+        interval_end = dt_util.as_local(reset_utc)
 
         return _SynchronizedInputs(
             interval_id=interval_id,
             interval_end=interval_end,
-            imported_kwh=imported_kwh,
-            shared_kwh=shared_kwh,
+            provider_exported_kwh=provider_reading.last_period_kwh,
+            receiver_imported_kwh=receiver_reading.last_period_kwh,
+            reported_allocated_kwh=(
+                reported_reading.last_period_kwh if reported_reading else None
+            ),
+            provider_export_source=provider_entity,
+            receiver_import_source=receiver_entity,
+            reported_allocation_source=reported_entity,
         )
 
     async def async_reset_totals(self) -> None:
         """Reset cumulative totals and counters."""
-        self.data.cumulative_imported = 0.0
-        self.data.cumulative_shared = 0.0
+        self.data.cumulative_provider_export = 0.0
+        self.data.cumulative_receiver_import = 0.0
+        self.data.cumulative_calculated_allocated = 0.0
         self.data.cumulative_used = 0.0
         self.data.cumulative_unused = 0.0
         self.data.cumulative_billable = 0.0
         self.data.processed_intervals = 0
         self.data.skipped_intervals = 0
+        self.data.reconciliation_mismatch_count = 0
         self.data.last_skip = None
         await self.storage.async_save(self.data.to_dict())
         self._notify_update()
 
     def get_effective_percentage(self) -> float | None:
         """Return the current effective allocation percentage."""
-        mode = self.entry.data[CONF_PERCENTAGE_MODE]
+        mode = self.get_option(
+            CONF_ALLOCATION_PERCENTAGE_MODE, PERCENTAGE_MODE_ENTITY
+        )
         if mode == PERCENTAGE_MODE_FIXED:
             return float(
-                self.get_option(CONF_FIXED_PERCENTAGE, DEFAULT_FIXED_PERCENTAGE)
+                self.get_option(
+                    CONF_FIXED_ALLOCATION_PERCENTAGE,
+                    DEFAULT_FIXED_ALLOCATION_PERCENTAGE,
+                )
             )
 
-        entity_id = self.entry.data.get(CONF_PERCENTAGE_ENTITY)
+        entity_id = self.get_option(CONF_ALLOCATION_PERCENTAGE_SOURCE)
         if not entity_id:
             return None
-        state = self.hass.states.get(entity_id)
+        state = self.hass.states.get(str(entity_id))
         if state is None or state.state in ("unknown", "unavailable"):
             return None
         try:
@@ -657,13 +842,20 @@ class EnergySharingManager:
 
     def get_diagnostics_snapshot(self) -> dict[str, Any]:
         """Return a diagnostics-friendly snapshot."""
-        grid_state = self.hass.states.get(self.entry.data[CONF_GRID_IMPORT_ENTITY])
-        shared_state = self.hass.states.get(self.entry.data[CONF_SHARED_ENERGY_ENTITY])
+        provider_state = self.hass.states.get(
+            self.entry.data[CONF_PROVIDER_EXPORT_SOURCE]
+        )
+        receiver_state = self.hass.states.get(
+            self.entry.data[CONF_RECEIVER_IMPORT_SOURCE]
+        )
+        reported_state = None
+        if self.reported_allocation_source:
+            reported_state = self.hass.states.get(self.reported_allocation_source)
         percentage_state = None
-        if self.entry.data.get(CONF_PERCENTAGE_MODE) == PERCENTAGE_MODE_ENTITY:
-            entity_id = self.entry.data.get(CONF_PERCENTAGE_ENTITY)
+        if self.get_option(CONF_ALLOCATION_PERCENTAGE_MODE) == PERCENTAGE_MODE_ENTITY:
+            entity_id = self.get_option(CONF_ALLOCATION_PERCENTAGE_SOURCE)
             if entity_id:
-                percentage_state = self.hass.states.get(entity_id)
+                percentage_state = self.hass.states.get(str(entity_id))
 
         return {
             "status": self.status,
@@ -671,15 +863,18 @@ class EnergySharingManager:
                 self._retry_deadline.isoformat() if self._retry_deadline else None
             ),
             "retry_warning_logged": self._retry_warning_logged,
+            "reconciliation_warning_logged": self._reconciliation_warning_logged,
             "source_entities": {
-                "grid_import": _state_snapshot(grid_state),
-                "shared_energy": _state_snapshot(shared_state),
+                "provider_export": _state_snapshot(provider_state),
+                "receiver_import": _state_snapshot(receiver_state),
+                "reported_allocation": _state_snapshot(reported_state),
                 "percentage": _state_snapshot(percentage_state),
             },
             "effective_percentage": self.get_effective_percentage(),
             "last_processed_interval_id": self.data.last_processed_interval_id,
             "processed_intervals": self.data.processed_intervals,
             "skipped_intervals": self.data.skipped_intervals,
+            "reconciliation_mismatch_count": self.data.reconciliation_mismatch_count,
             "last_skip": (
                 self.data.last_skip.to_dict() if self.data.last_skip else None
             ),
@@ -687,61 +882,14 @@ class EnergySharingManager:
                 self.data.last_interval.to_dict() if self.data.last_interval else None
             ),
             "cumulative": {
-                "imported": self.data.cumulative_imported,
-                "shared": self.data.cumulative_shared,
+                "provider_export": self.data.cumulative_provider_export,
+                "receiver_import": self.data.cumulative_receiver_import,
+                "calculated_allocated": self.data.cumulative_calculated_allocated,
                 "used": self.data.cumulative_used,
                 "unused": self.data.cumulative_unused,
                 "billable": self.data.cumulative_billable,
             },
         }
-
-
-class _SynchronizedInputs:
-    """Validated synchronized inputs for one interval."""
-
-    def __init__(
-        self,
-        interval_id: str,
-        interval_end: datetime,
-        imported_kwh: float,
-        shared_kwh: float,
-    ) -> None:
-        """Initialize synchronized inputs."""
-        self.interval_id = interval_id
-        self.interval_end = interval_end
-        self.imported_kwh = imported_kwh
-        self.shared_kwh = shared_kwh
-
-
-class _InputsUnavailableError(Exception):
-    """Raised when source entities are unavailable."""
-
-
-class _InputsUnsynchronizedError(Exception):
-    """Raised when source entities are not synchronized."""
-
-    def __init__(self, reason: str) -> None:
-        """Initialize with a reason."""
-        super().__init__(reason)
-        self.reason = reason
-
-
-class _InvalidInputError(Exception):
-    """Raised when source entity data is invalid."""
-
-    def __init__(self, reason: str) -> None:
-        """Initialize with a reason."""
-        super().__init__(reason)
-        self.reason = reason
-
-
-class _PercentageInvalidError(Exception):
-    """Raised when the allocation percentage is invalid."""
-
-    def __init__(self, reason: str) -> None:
-        """Initialize with a reason."""
-        super().__init__(reason)
-        self.reason = reason
 
 
 def _state_snapshot(state: Any) -> dict[str, Any] | None:
