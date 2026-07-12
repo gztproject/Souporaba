@@ -1,13 +1,13 @@
 process_now:
   name: Process now
-  description: Attempt to process the latest completed interval for the selected Energy Sharing device.
+  description: Attempt to process the latest eligible completed interval for the selected Energy Sharing device.
   target:
     device:
       integration: energy_sharing
 
 reset_totals:
   name: Reset totals
-  description: Reset all cumulative energy totals and interval counters. Source Utility Meters are not changed.
+  description: Reset all cumulative integration-owned energy totals and interval counters. Source cumulative sensors are not changed.
   target:
     device:
       integration: energy_sharing
@@ -18,3 +18,10 @@ reset_totals:
       required: true
       selector:
         boolean:
+
+reinitialize_baseline:
+  name: Reinitialize baseline
+  description: Record current cumulative source totals as a fresh baseline and skip settlement for the partial current interval. Integration-owned cumulative totals are not reset.
+  target:
+    device:
+      integration: energy_sharing
