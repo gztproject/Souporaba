@@ -127,3 +127,5 @@ For advanced setups, you may configure an attribute name that contains the sourc
 Prejemnik (Receiver) total import and shared energy total are identity settings in the config entry. Changing them requires removing and re-adding the integration, or using a dedicated reconfigure flow if available.
 
 Oddajnik (Provider) export source, fixed percentage, timing, tolerances, and timestamp attributes can be changed in the options flow. After major source changes, use **Reinitialize baseline** if needed.
+
+For regulatory background, eligibility, omrežnina vs energy billing, and the calibration workflow, see [REGULATORY_CONTEXT.md](REGULATORY_CONTEXT.md).

@@ -599,7 +599,7 @@ class EnergySharingManager:
             shared_energy_interval_kwh=deltas["shared_energy_interval_kwh"],
             used_shared_kwh=float(settlement["used_shared_kwh"]),
             unused_shared_kwh=float(settlement["unused_shared_kwh"]),
-            billable_grid_kwh=float(settlement["billable_grid_kwh"]),
+            billable_energy_kwh=float(settlement["billable_energy_kwh"]),
             provider_export_interval_kwh=settlement["provider_export_interval_kwh"],
             provider_export_source_type=str(
                 settlement["provider_export_source_type"]
@@ -631,7 +631,7 @@ class EnergySharingManager:
                 self.data.cumulative_expected_shared += result.expected_shared_kwh
             self.data.cumulative_used += result.used_shared_kwh
             self.data.cumulative_unused += result.unused_shared_kwh
-            self.data.cumulative_billable += result.billable_grid_kwh
+            self.data.cumulative_billable_energy += result.billable_energy_kwh
             self.data.processed_intervals += 1
             if missed > 0:
                 self.data.skipped_intervals += missed
@@ -913,7 +913,7 @@ class EnergySharingManager:
         self.data.cumulative_expected_shared = 0.0
         self.data.cumulative_used = 0.0
         self.data.cumulative_unused = 0.0
-        self.data.cumulative_billable = 0.0
+        self.data.cumulative_billable_energy = 0.0
         self.data.processed_intervals = 0
         self.data.skipped_intervals = 0
         self.data.reconciliation_mismatch_count = 0
@@ -987,6 +987,6 @@ class EnergySharingManager:
                 "expected_shared": self.data.cumulative_expected_shared,
                 "used": self.data.cumulative_used,
                 "unused": self.data.cumulative_unused,
-                "billable": self.data.cumulative_billable,
+                "billable_energy": self.data.cumulative_billable_energy,
             },
         }

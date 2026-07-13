@@ -103,7 +103,7 @@ class IntervalResult:
     shared_energy_interval_kwh: float
     used_shared_kwh: float
     unused_shared_kwh: float
-    billable_grid_kwh: float
+    billable_energy_kwh: float
     provider_export_interval_kwh: float | None
     provider_export_source_type: str
     expected_shared_kwh: float | None
@@ -143,7 +143,9 @@ class IntervalResult:
             shared_energy_interval_kwh=float(data["shared_energy_interval_kwh"]),
             used_shared_kwh=float(data["used_shared_kwh"]),
             unused_shared_kwh=float(data["unused_shared_kwh"]),
-            billable_grid_kwh=float(data["billable_grid_kwh"]),
+            billable_energy_kwh=float(
+                data.get("billable_energy_kwh", data.get("billable_grid_kwh", 0))
+            ),
             provider_export_interval_kwh=(
                 float(data["provider_export_interval_kwh"])
                 if data.get("provider_export_interval_kwh") is not None
@@ -248,7 +250,7 @@ class StorageData:
     cumulative_expected_shared: float = 0.0
     cumulative_used: float = 0.0
     cumulative_unused: float = 0.0
-    cumulative_billable: float = 0.0
+    cumulative_billable_energy: float = 0.0
     processed_intervals: int = 0
     skipped_intervals: int = 0
     source_reset_count: int = 0
@@ -278,7 +280,7 @@ class StorageData:
             "cumulative_expected_shared": self.cumulative_expected_shared,
             "cumulative_used": self.cumulative_used,
             "cumulative_unused": self.cumulative_unused,
-            "cumulative_billable": self.cumulative_billable,
+            "cumulative_billable_energy": self.cumulative_billable_energy,
             "processed_intervals": self.processed_intervals,
             "skipped_intervals": self.skipped_intervals,
             "source_reset_count": self.source_reset_count,
@@ -335,7 +337,12 @@ class StorageData:
             ),
             cumulative_used=float(data.get("cumulative_used", 0.0)),
             cumulative_unused=float(data.get("cumulative_unused", 0.0)),
-            cumulative_billable=float(data.get("cumulative_billable", 0.0)),
+            cumulative_billable_energy=float(
+                data.get(
+                    "cumulative_billable_energy",
+                    data.get("cumulative_billable", 0.0),
+                )
+            ),
             processed_intervals=int(data.get("processed_intervals", 0)),
             skipped_intervals=int(data.get("skipped_intervals", 0)),
             source_reset_count=int(data.get("source_reset_count", 0)),
@@ -378,6 +385,15 @@ def migrate_storage(data: dict[str, Any], from_version: int) -> dict[str, Any]:
         migrated["last_failure"] = None
         migrated["last_source_reset"] = None
         migrated["version"] = 3
+
+    if from_version < 4:
+        if migrated.get("cumulative_billable") is not None:
+            migrated["cumulative_billable_energy"] = migrated.pop("cumulative_billable")
+        last_interval = migrated.get("last_interval")
+        if isinstance(last_interval, dict) and "billable_grid_kwh" in last_interval:
+            last_interval["billable_energy_kwh"] = last_interval.pop(
+                "billable_grid_kwh"
+            )
 
     migrated["version"] = STORAGE_VERSION
     return migrated
@@ -422,7 +438,7 @@ def calculate_settlement(
     """Calculate settlement values for one interval."""
     used_shared_kwh = min(shared, imported)
     unused_shared_kwh = max(shared - imported, 0.0)
-    billable_grid_kwh = max(imported - shared, 0.0)
+    billable_energy_kwh = max(imported - shared, 0.0)
 
     allocation_utilization_pct: float | None = None
     if shared > 0:
@@ -474,7 +490,7 @@ def calculate_settlement(
     return {
         "used_shared_kwh": used_shared_kwh,
         "unused_shared_kwh": unused_shared_kwh,
-        "billable_grid_kwh": billable_grid_kwh,
+        "billable_energy_kwh": billable_energy_kwh,
         "allocation_utilization_pct": allocation_utilization_pct,
         "consumption_coverage_pct": consumption_coverage_pct,
         "provider_export_interval_kwh": provider_export_interval_kwh,

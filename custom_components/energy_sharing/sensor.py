@@ -102,12 +102,12 @@ def _interval_energy_sensors() -> tuple[EnergySharingSensorDescription, ...]:
             value_key="unused_shared_kwh",
         ),
         EnergySharingSensorDescription(
-            key="billable_grid_last_interval",
-            translation_key="billable_grid_last_interval",
+            key="billable_energy_last_interval",
+            translation_key="billable_energy_last_interval",
             native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
             state_class=SensorStateClass.MEASUREMENT,
             icon="mdi:cash",
-            value_key="billable_grid_kwh",
+            value_key="billable_energy_kwh",
         ),
         EnergySharingSensorDescription(
             key="allocation_difference_last_interval",
@@ -249,13 +249,13 @@ def _cumulative_sensors() -> tuple[EnergySharingSensorDescription, ...]:
             cumulative=True,
         ),
         EnergySharingSensorDescription(
-            key="total_billable_grid",
-            translation_key="total_billable_grid",
+            key="total_billable_energy",
+            translation_key="total_billable_energy",
             native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
             device_class=SensorDeviceClass.ENERGY,
             state_class=SensorStateClass.TOTAL_INCREASING,
             icon="mdi:cash",
-            value_key="cumulative_billable",
+            value_key="cumulative_billable_energy",
             cumulative=True,
         ),
     )

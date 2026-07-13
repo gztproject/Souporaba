@@ -13,6 +13,22 @@ Home Assistant custom integration that calculates **solar energy sharing settlem
 
 The integration runs on the **Prejemnik (Receiver)** Home Assistant instance. It does **not** require Utility Meter helpers or `last_period` / `last_reset` attributes.
 
+It is a **settlement monitor and calibration tool**, not a replacement for Moj Elektro registration or your supplier invoice. See [docs/REGULATORY_CONTEXT.md](docs/REGULATORY_CONTEXT.md).
+
+## Intended use
+
+### Phase 1 — Calibrate before official sharing
+
+Start the integration **before** you register souporaba in Moj Elektro. Use measured Oddajnik (Provider) grid export and Prejemnik (Receiver) grid import in **export + percentage** mode (or export-only) to learn what allocation percentage actually fits your consumption pattern — instead of guessing (for example 7%).
+
+Review interval and cumulative sensors (`ideal_share_last_interval`, `required_share_last_interval`, `effective_allocation_percentage_last_interval`, `unused_shared_last_interval`, `allocation_utilization_last_interval`) to pick an evidence-based percentage for your Moj Elektro registration.
+
+### Phase 2 — Tune each month after go-live
+
+Keep the integration running. Each month, compare registered sharing against real intervals and adjust the percentage for the **next** month in **Moj Elektro** (submit by the **10th** for effect on the **1st** of the following month). When you change the registered share, update `fixed_allocation_percentage` in integration options.
+
+The integration **recommends and monitors**; you **register and confirm** sharing in Moj Elektro.
+
 ## What this integration does
 
 1. Reads cumulative energy totals for receiver grid import and allocated shared energy.
@@ -23,7 +39,7 @@ The integration runs on the **Prejemnik (Receiver)** Home Assistant instance. It
 
 ## Input entities
 
-See [docs/INPUT_ENTITIES.md](docs/INPUT_ENTITIES.md).
+See [docs/INPUT_ENTITIES.md](docs/INPUT_ENTITIES.md) and [docs/REGULATORY_CONTEXT.md](docs/REGULATORY_CONTEXT.md).
 
 | Input | Required | Meaning |
 | Prejemnik (Receiver) total grid import | Yes | Cumulative energy imported by the receiver (`receiver_import_total_source`) |

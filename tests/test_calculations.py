@@ -49,7 +49,7 @@ def test_percentage_only_mode_seven_percent() -> None:
     assert result["provider_export_interval_kwh"] == pytest.approx(10.0)
     assert result["provider_export_source_type"] == EXPORT_TYPE_INFERRED
     assert result["used_shared_kwh"] == pytest.approx(0.7)
-    assert result["billable_grid_kwh"] == pytest.approx(0.3)
+    assert result["billable_energy_kwh"] == pytest.approx(0.3)
 
 
 def test_export_only_mode() -> None:
@@ -87,7 +87,7 @@ def test_shared_greater_than_imported() -> None:
     )
     assert result["used_shared_kwh"] == pytest.approx(0.5)
     assert result["unused_shared_kwh"] == pytest.approx(0.2)
-    assert result["billable_grid_kwh"] == 0.0
+    assert result["billable_energy_kwh"] == 0.0
 
 
 def test_required_above_100_ideal_capped() -> None:
