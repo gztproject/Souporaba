@@ -41,6 +41,7 @@
           "name": "Ime integracije",
           "provider_export_total_source": "Skupni izvoz oddajnika (neobvezno)",
           "fixed_allocation_percentage": "Fiksni odstotek dodelitve (neobvezno)",
+          "active_load_switches": "Stikala aktivnih bremen (neobvezno)",
           "interval_minutes": "Dolžina intervala (minute)",
           "processing_delay": "Zakasnitev obdelave po meji intervala (sekunde)",
           "max_wait": "Najdaljše čakanje na posodobitev virov (sekunde)",
@@ -53,6 +54,11 @@
           "allocation_tolerance_pct": "Toleranca usklajevanja dodelitve (%)",
           "reconciliation_failure_mode": "Način ob neuspešnem usklajevanju"
         }
+      }
+      ,
+      "active_load_sensors": {
+        "title": "Izberite senzorje moči aktivnih bremen",
+        "description": "Za vsako stikalo izberite pripadajoči senzor trenutne moči."
       }
     },
     "error": {
@@ -105,6 +111,12 @@
       "skipped_interval_count": {"name": "Število preskočenih intervalov"},
       "source_reset_count": {"name": "Število ponastavitev števca"},
       "reconciliation_mismatch_count": {"name": "Število neusklajenih dodelitev"}
+      ,
+      "active_load_target_wh": {"name": "Cilj aktivnih bremen (Wh)"},
+      "active_load_measured_wh": {"name": "Izmerjena energija aktivnih bremen (Wh)"},
+      "active_load_remaining_wh": {"name": "Preostali cilj aktivnih bremen (Wh)"},
+      "active_load_available_count": {"name": "Število razpoložljivih aktivnih bremen"},
+      "active_load_seconds_remaining": {"name": "Preostale sekunde intervala"}
     }
   },
   "services": {

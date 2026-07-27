@@ -6,8 +6,10 @@ from homeassistant import config_entries
 from homeassistant.const import UnitOfEnergy
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.energy_sharing.const import (
+    CONF_ACTIVE_LOADS,
     CONF_FIXED_ALLOCATION_PERCENTAGE,
     CONF_PROVIDER_EXPORT_TOTAL_SOURCE,
     CONF_RECEIVER_IMPORT_TOTAL_SOURCE,
@@ -194,3 +196,48 @@ async def test_config_flow_rejects_unsupported_unit(
     )
     assert result["type"] == FlowResultType.FORM
     assert result["errors"]["receiver_import"] == "unsupported_energy_unit"
+
+
+async def test_options_flow_active_load_switch_selection(
+    hass: HomeAssistant,
+    receiver_import_total_entity: str,
+    shared_energy_total_entity: str,
+) -> None:
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Energy Sharing",
+        data={
+            CONF_RECEIVER_IMPORT_TOTAL_SOURCE: receiver_import_total_entity,
+            CONF_SHARED_ENERGY_TOTAL_SOURCE: shared_energy_total_entity,
+        },
+        options={CONF_FIXED_ALLOCATION_PERCENTAGE: 7.0, CONF_ACTIVE_LOADS: []},
+    )
+    entry.add_to_hass(hass)
+    hass.states.async_set(
+        receiver_import_total_entity,
+        "100",
+        {"unit_of_measurement": "kWh"},
+    )
+    hass.states.async_set(
+        shared_energy_total_entity,
+        "10",
+        {"unit_of_measurement": "kWh"},
+    )
+    hass.states.async_set("switch.boiler_a", "off")
+    hass.states.async_set(
+        "sensor.boiler_a_power",
+        "0",
+        {"unit_of_measurement": "W", "device_class": "power"},
+    )
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["type"] == FlowResultType.FORM
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "name": "Energy Sharing",
+            CONF_FIXED_ALLOCATION_PERCENTAGE: 7.0,
+            "active_load_switches": ["switch.boiler_a"],
+        },
+    )
+    assert result["type"] in (FlowResultType.FORM, FlowResultType.CREATE_ENTRY)

@@ -41,6 +41,7 @@
           "name": "Integration name",
           "provider_export_total_source": "Provider total grid export (optional)",
           "fixed_allocation_percentage": "Fixed allocation percentage (optional)",
+          "active_load_switches": "Active load switches (optional)",
           "interval_minutes": "Interval length (minutes)",
           "processing_delay": "Processing delay after interval boundary (seconds)",
           "max_wait": "Maximum wait for source updates (seconds)",
@@ -53,6 +54,11 @@
           "allocation_tolerance_pct": "Allocation reconciliation tolerance (%)",
           "reconciliation_failure_mode": "Reconciliation failure mode"
         }
+      }
+      ,
+      "active_load_sensors": {
+        "title": "Select active load power sensors",
+        "description": "Select a real-time power sensor for each switch."
       }
     },
     "error": {
@@ -105,6 +111,12 @@
       "skipped_interval_count": {"name": "Skipped interval count"},
       "source_reset_count": {"name": "Source reset count"},
       "reconciliation_mismatch_count": {"name": "Reconciliation mismatch count"}
+      ,
+      "active_load_target_wh": {"name": "Active load target (Wh)"},
+      "active_load_measured_wh": {"name": "Active load measured energy (Wh)"},
+      "active_load_remaining_wh": {"name": "Active load remaining target (Wh)"},
+      "active_load_available_count": {"name": "Available active load count"},
+      "active_load_seconds_remaining": {"name": "Seconds remaining in interval"}
     }
   },
   "services": {

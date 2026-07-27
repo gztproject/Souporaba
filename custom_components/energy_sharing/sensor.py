@@ -352,6 +352,36 @@ STATUS_SENSORS: tuple[EnergySharingSensorDescription, ...] = (
         value_key="reconciliation_mismatch_count",
         counter=True,
     ),
+    EnergySharingSensorDescription(
+        key="active_load_target_wh",
+        translation_key="active_load_target_wh",
+        icon="mdi:target",
+        status=True,
+    ),
+    EnergySharingSensorDescription(
+        key="active_load_measured_wh",
+        translation_key="active_load_measured_wh",
+        icon="mdi:lightning-bolt",
+        status=True,
+    ),
+    EnergySharingSensorDescription(
+        key="active_load_remaining_wh",
+        translation_key="active_load_remaining_wh",
+        icon="mdi:chart-timeline-variant",
+        status=True,
+    ),
+    EnergySharingSensorDescription(
+        key="active_load_available_count",
+        translation_key="active_load_available_count",
+        icon="mdi:counter",
+        status=True,
+    ),
+    EnergySharingSensorDescription(
+        key="active_load_seconds_remaining",
+        translation_key="active_load_seconds_remaining",
+        icon="mdi:timer-outline",
+        status=True,
+    ),
 )
 
 
@@ -470,6 +500,22 @@ class EnergySharingSensor(SensorEntity):
             self._attr_available = True
             return
 
+        if description.key.startswith("active_load_"):
+            active = self._manager.get_diagnostics_snapshot().get("active_loads") or {}
+            value_map = {
+                "active_load_target_wh": "target_wh",
+                "active_load_measured_wh": "measured_wh",
+                "active_load_remaining_wh": "remaining_wh",
+                "active_load_available_count": "available_load_count",
+                "active_load_seconds_remaining": "seconds_remaining",
+            }
+            key = value_map[description.key]
+            self._attr_native_value = active.get(key)
+            self._attr_available = active != {}
+            if active:
+                self._attr_extra_state_attributes = {"loads": active.get("loads", [])}
+            return
+
         if description.key == "last_processed_interval_id":
             self._attr_native_value = data.last_processed_interval_id
             self._attr_available = True
@@ -503,9 +549,8 @@ class EnergySharingSensor(SensorEntity):
             return
 
         if description.cumulative or description.counter:
-            key = description.value_key
-            assert key is not None
-            self._attr_native_value = getattr(data, key)
+            value_key = description.value_key or ""
+            self._attr_native_value = getattr(data, value_key)
             self._attr_available = True
             return
 
@@ -514,9 +559,8 @@ class EnergySharingSensor(SensorEntity):
             self._attr_available = False
             return
 
-        key = description.value_key
-        assert key is not None
-        self._attr_native_value = getattr(last_interval, key)
+        value_key = description.value_key or ""
+        self._attr_native_value = getattr(last_interval, value_key)
         self._attr_available = last_interval.settlement_accumulated or (
             self._attr_native_value is not None
         )
