@@ -15,6 +15,24 @@ CONF_SHARED_ENERGY_TOTAL_SOURCE: Final = "shared_energy_total_source"
 # Conditional sources (options)
 CONF_PROVIDER_EXPORT_TOTAL_SOURCE: Final = "provider_export_total_source"
 CONF_FIXED_ALLOCATION_PERCENTAGE: Final = "fixed_allocation_percentage"
+CONF_ACTIVE_LOADS: Final = "active_loads"
+
+CONF_ACTIVE_LOAD_SWITCH_ENTITY_ID: Final = "switch_entity_id"
+CONF_ACTIVE_LOAD_POWER_SENSOR_ENTITY_ID: Final = "power_sensor_entity_id"
+CONF_ACTIVE_LOAD_PRIORITY: Final = "priority"
+CONF_ACTIVE_LOAD_ENABLED: Final = "enabled"
+
+CONF_ACTIVE_LOAD_CONTROL_TICK_SECONDS: Final = "active_load_control_tick_seconds"
+CONF_ACTIVE_LOAD_STARTUP_GRACE_SECONDS: Final = "active_load_startup_grace_seconds"
+CONF_ACTIVE_LOAD_IDLE_DETECTION_SECONDS: Final = "active_load_idle_detection_seconds"
+CONF_ACTIVE_LOAD_MIN_ACTIVE_POWER_W: Final = "active_load_min_active_power_w"
+CONF_ACTIVE_LOAD_MIN_ON_SECONDS: Final = "active_load_min_on_seconds"
+CONF_ACTIVE_LOAD_MIN_OFF_SECONDS: Final = "active_load_min_off_seconds"
+CONF_ACTIVE_LOAD_ENERGY_DEADBAND_WH: Final = "active_load_energy_deadband_wh"
+CONF_ACTIVE_LOAD_CORRECTION_GAIN: Final = "active_load_correction_gain"
+CONF_ACTIVE_LOAD_MAX_CORRECTION_WH: Final = "active_load_max_correction_wh"
+CONF_ACTIVE_LOAD_PREDICTIVE_EARLY_STOP: Final = "active_load_predictive_early_stop"
+CONF_ACTIVE_LOAD_PREDICTIVE_MARGIN_WH: Final = "active_load_predictive_margin_wh"
 
 # Legacy keys (migration only)
 CONF_PROVIDER_EXPORT_SOURCE: Final = "provider_export_source"
@@ -27,6 +45,8 @@ CONF_ALLOCATION_PERCENTAGE_SOURCE: Final = "allocation_percentage_source"
 CONF_PERCENTAGE_MODE: Final = "percentage_mode"
 CONF_PERCENTAGE_ENTITY: Final = "percentage_entity"
 CONF_FIXED_PERCENTAGE: Final = "fixed_percentage"
+CONF_ACTIVE_SWITCH_ENTITY_ID: Final = "active_switch_entity_id"
+CONF_ACTIVE_POWER_SENSOR_ENTITY_ID: Final = "active_power_sensor_entity_id"
 
 # Timing (options)
 CONF_INTERVAL_MINUTES: Final = "interval_minutes"
@@ -68,6 +88,18 @@ DEFAULT_FIXED_ALLOCATION_PERCENTAGE: Final = 7.0
 DEFAULT_ALLOCATION_TOLERANCE_KWH: Final = 0.01
 DEFAULT_ALLOCATION_TOLERANCE_PCT: Final = 5.0
 DEFAULT_RECONCILIATION_FAILURE_MODE: Final = RECONCILIATION_MODE_WARN
+DEFAULT_ACTIVE_LOADS: Final[list[dict[str, str | int | bool]]] = []
+DEFAULT_ACTIVE_LOAD_CONTROL_TICK_SECONDS: Final = 5
+DEFAULT_ACTIVE_LOAD_STARTUP_GRACE_SECONDS: Final = 10
+DEFAULT_ACTIVE_LOAD_IDLE_DETECTION_SECONDS: Final = 25
+DEFAULT_ACTIVE_LOAD_MIN_ACTIVE_POWER_W: Final = 30.0
+DEFAULT_ACTIVE_LOAD_MIN_ON_SECONDS: Final = 25
+DEFAULT_ACTIVE_LOAD_MIN_OFF_SECONDS: Final = 25
+DEFAULT_ACTIVE_LOAD_ENERGY_DEADBAND_WH: Final = 3.0
+DEFAULT_ACTIVE_LOAD_CORRECTION_GAIN: Final = 0.5
+DEFAULT_ACTIVE_LOAD_MAX_CORRECTION_WH: Final = 25.0
+DEFAULT_ACTIVE_LOAD_PREDICTIVE_EARLY_STOP: Final = True
+DEFAULT_ACTIVE_LOAD_PREDICTIVE_MARGIN_WH: Final = 2.0
 
 SUPPORTED_ENERGY_UNITS: Final = frozenset({"Wh", "kWh"})
 
@@ -83,6 +115,12 @@ MIN_SOURCE_FRESHNESS_TOLERANCE: Final = 30
 MAX_SOURCE_FRESHNESS_TOLERANCE: Final = 3600
 MIN_ALLOCATION_PERCENTAGE: Final = 0.01
 MAX_ALLOCATION_PERCENTAGE: Final = 100.0
+MIN_ACTIVE_LOAD_MIN_POWER_W: Final = 1.0
+MAX_ACTIVE_LOAD_MIN_POWER_W: Final = 20000.0
+MIN_ACTIVE_LOAD_DEADBAND_WH: Final = 0.1
+MAX_ACTIVE_LOAD_DEADBAND_WH: Final = 100.0
+MIN_ACTIVE_LOAD_CORRECTION_GAIN: Final = 0.0
+MAX_ACTIVE_LOAD_CORRECTION_GAIN: Final = 1.0
 
 STORAGE_VERSION: Final = 4
 STORAGE_KEY: Final = "energy_sharing.storage"

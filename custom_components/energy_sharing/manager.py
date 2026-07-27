@@ -20,9 +20,15 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
+from .active_loads import ActiveLoadConfig, ActiveLoadController
 from .const import (
     BASELINE_INITIALIZED,
     BASELINE_NOT_INITIALIZED,
+    CONF_ACTIVE_LOAD_ENABLED,
+    CONF_ACTIVE_LOAD_POWER_SENSOR_ENTITY_ID,
+    CONF_ACTIVE_LOAD_PRIORITY,
+    CONF_ACTIVE_LOAD_SWITCH_ENTITY_ID,
+    CONF_ACTIVE_LOADS,
     CONF_ALLOCATION_TOLERANCE_KWH,
     CONF_ALLOCATION_TOLERANCE_PCT,
     CONF_FIXED_ALLOCATION_PERCENTAGE,
@@ -161,6 +167,7 @@ class EnergySharingManager:
         self._retry_warning_logged = False
         self._entity_update_callbacks: list[CALLBACK_TYPE] = []
         self._update_listeners: list[Callable[[], None]] = []
+        self._active_load_controller: ActiveLoadController | None = None
 
     @property
     def device_name(self) -> str:
@@ -251,6 +258,7 @@ class EnergySharingManager:
 
         self._register_services()
         self._subscribe_source_entities()
+        self._setup_active_load_controller()
         self._schedule_next_processing()
         self._refresh_status()
         self._notify_update()
@@ -263,15 +271,53 @@ class EnergySharingManager:
         for unsub in self._entity_update_callbacks:
             unsub()
         self._entity_update_callbacks.clear()
+        if self._active_load_controller is not None:
+            await self._active_load_controller.async_unload()
+            self._active_load_controller = None
 
     def async_reconfigure(self) -> None:
         for unsub in self._entity_update_callbacks:
             unsub()
         self._entity_update_callbacks.clear()
         self._subscribe_source_entities()
+        self._setup_active_load_controller()
         self._schedule_next_processing()
         self._refresh_status()
         self._notify_update()
+
+    def _setup_active_load_controller(self) -> None:
+        loads = self._active_load_configs_from_options()
+        if self._active_load_controller is None:
+            self._active_load_controller = ActiveLoadController(
+                self.hass, self, loads, self.interval_minutes
+            )
+            if self._active_load_controller.has_loads:
+                self.hass.async_create_task(self._active_load_controller.async_setup())
+            return
+
+        self._active_load_controller.update_configuration(loads, self.interval_minutes)
+
+    def _active_load_configs_from_options(self) -> list[ActiveLoadConfig]:
+        raw = self.get_option(CONF_ACTIVE_LOADS, [])
+        configs: list[ActiveLoadConfig] = []
+        if not isinstance(raw, list):
+            return configs
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            switch_entity_id = item.get(CONF_ACTIVE_LOAD_SWITCH_ENTITY_ID)
+            power_sensor_entity_id = item.get(CONF_ACTIVE_LOAD_POWER_SENSOR_ENTITY_ID)
+            if not switch_entity_id or not power_sensor_entity_id:
+                continue
+            configs.append(
+                ActiveLoadConfig(
+                    switch_entity_id=str(switch_entity_id),
+                    power_sensor_entity_id=str(power_sensor_entity_id),
+                    priority=int(item.get(CONF_ACTIVE_LOAD_PRIORITY, len(configs))),
+                    enabled=bool(item.get(CONF_ACTIVE_LOAD_ENABLED, True)),
+                )
+            )
+        return sorted(configs, key=lambda cfg: cfg.priority)
 
     def _refresh_status(self) -> None:
         if not self.data.baseline_initialized:
@@ -619,6 +665,8 @@ class EnergySharingManager:
         )
 
         await self._async_advance_snapshot(readings)
+        if self._active_load_controller is not None:
+            self._active_load_controller.notify_processed_interval(result.unused_shared_kwh)
 
         if accumulate:
             self.data.cumulative_receiver_import += result.receiver_import_interval_kwh
@@ -989,4 +1037,9 @@ class EnergySharingManager:
                 "unused": self.data.cumulative_unused,
                 "billable_energy": self.data.cumulative_billable_energy,
             },
+            "active_loads": (
+                self._active_load_controller.get_snapshot()
+                if self._active_load_controller is not None
+                else None
+            ),
         }
