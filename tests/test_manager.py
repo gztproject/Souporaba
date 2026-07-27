@@ -25,6 +25,8 @@ from custom_components.energy_sharing.const import (
     RECONCILIATION_MISMATCH_WARN,
     RECONCILIATION_MODE_SKIP_INTERVAL,
     RECONCILIATION_MODE_WARN,
+    STORAGE_KEY,
+    STORAGE_VERSION,
 )
 from tests.conftest import set_cumulative_sources
 
@@ -487,6 +489,37 @@ async def test_cumulative_totals_never_decrease(
         )
         await manager.async_process_now()
     assert manager.data.cumulative_receiver_import >= first_total
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_setup_migrates_v3_store_to_v4(
+    hass: HomeAssistant,
+    hass_storage: dict,
+    mock_config_entry_percentage_only: MockConfigEntry,
+) -> None:
+    entry = mock_config_entry_percentage_only
+    storage_key = f"{STORAGE_KEY}.{entry.entry_id}"
+    hass_storage[storage_key] = {
+        "version": 3,
+        "minor_version": 1,
+        "key": storage_key,
+        "data": {
+            "version": 3,
+            "baseline_initialized": True,
+            "cumulative_billable": 1.5,
+            "cumulative_receiver_import": 42.0,
+            "cumulative_shared_energy": 7.0,
+        },
+    }
+
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    manager = entry.runtime_data.manager
+    assert manager.data.cumulative_billable_energy == pytest.approx(1.5)
+    assert manager.data.cumulative_receiver_import == pytest.approx(42.0)
+    assert hass_storage[storage_key]["version"] == STORAGE_VERSION
 
 
 @freeze_time("2026-07-12 15:00:10+02:00")

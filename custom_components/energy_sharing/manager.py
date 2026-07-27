@@ -17,7 +17,6 @@ from homeassistant.helpers.event import (
     async_track_point_in_time,
     async_track_state_change_event,
 )
-from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -93,6 +92,7 @@ from .models import (
 from .models import (
     resolve_operating_mode as _resolve_operating_mode,
 )
+from .storage import EnergySharingStore
 
 if TYPE_CHECKING:
     from . import EnergySharingConfigEntry
@@ -147,7 +147,7 @@ class EnergySharingManager:
     def __init__(self, hass: HomeAssistant, entry: EnergySharingConfigEntry) -> None:
         self.hass = hass
         self.entry = entry
-        self.storage = Store[dict[str, Any]](
+        self.storage = EnergySharingStore(
             hass,
             STORAGE_VERSION,
             f"{STORAGE_KEY}.{entry.entry_id}",
