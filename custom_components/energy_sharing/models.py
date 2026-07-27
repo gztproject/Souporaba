@@ -20,6 +20,22 @@ from .const import (
 )
 
 
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    """Convert a value to float with fallback."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    """Convert a value to int with fallback."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 @dataclass(slots=True)
 class BoundarySnapshot:
     """Cumulative readings at the last accepted interval boundary."""
@@ -299,7 +315,10 @@ class StorageData:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> StorageData:
         """Deserialize from storage with migration support."""
-        version = int(data.get("version", 1))
+        if not isinstance(data, dict):
+            return cls()
+
+        version = _safe_int(data.get("version", 1), 1)
         if version != STORAGE_VERSION:
             data = migrate_storage(data, version)
 
@@ -311,51 +330,56 @@ class StorageData:
         return cls(
             version=STORAGE_VERSION,
             baseline_initialized=bool(data.get("baseline_initialized", False)),
-            baseline_initialization_count=int(
-                data.get("baseline_initialization_count", 0)
+            baseline_initialization_count=_safe_int(
+                data.get("baseline_initialization_count", 0), 0
             ),
             previous_snapshot=(
                 BoundarySnapshot.from_dict(previous_snapshot)
-                if previous_snapshot
+                if isinstance(previous_snapshot, dict)
                 else None
             ),
             last_processed_interval_id=data.get("last_processed_interval_id"),
             last_interval=(
-                IntervalResult.from_dict(last_interval) if last_interval else None
+                IntervalResult.from_dict(last_interval)
+                if isinstance(last_interval, dict)
+                else None
             ),
-            cumulative_receiver_import=float(
-                data.get("cumulative_receiver_import", 0.0)
+            cumulative_receiver_import=_safe_float(
+                data.get("cumulative_receiver_import", 0.0), 0.0
             ),
-            cumulative_shared_energy=float(
-                data.get("cumulative_shared_energy", 0.0)
+            cumulative_shared_energy=_safe_float(
+                data.get("cumulative_shared_energy", 0.0), 0.0
             ),
-            cumulative_provider_export=float(
-                data.get("cumulative_provider_export", 0.0)
+            cumulative_provider_export=_safe_float(
+                data.get("cumulative_provider_export", 0.0), 0.0
             ),
-            cumulative_expected_shared=float(
-                data.get("cumulative_expected_shared", 0.0)
+            cumulative_expected_shared=_safe_float(
+                data.get("cumulative_expected_shared", 0.0), 0.0
             ),
-            cumulative_used=float(data.get("cumulative_used", 0.0)),
-            cumulative_unused=float(data.get("cumulative_unused", 0.0)),
-            cumulative_billable_energy=float(
+            cumulative_used=_safe_float(data.get("cumulative_used", 0.0), 0.0),
+            cumulative_unused=_safe_float(data.get("cumulative_unused", 0.0), 0.0),
+            cumulative_billable_energy=_safe_float(
                 data.get(
                     "cumulative_billable_energy",
                     data.get("cumulative_billable", 0.0),
-                )
+                ),
+                0.0,
             ),
-            processed_intervals=int(data.get("processed_intervals", 0)),
-            skipped_intervals=int(data.get("skipped_intervals", 0)),
-            source_reset_count=int(data.get("source_reset_count", 0)),
-            invalid_reading_count=int(data.get("invalid_reading_count", 0)),
-            reconciliation_mismatch_count=int(
-                data.get("reconciliation_mismatch_count", 0)
+            processed_intervals=_safe_int(data.get("processed_intervals", 0), 0),
+            skipped_intervals=_safe_int(data.get("skipped_intervals", 0), 0),
+            source_reset_count=_safe_int(data.get("source_reset_count", 0), 0),
+            invalid_reading_count=_safe_int(data.get("invalid_reading_count", 0), 0),
+            reconciliation_mismatch_count=_safe_int(
+                data.get("reconciliation_mismatch_count", 0), 0
             ),
             last_failure=(
-                FailureRecord.from_dict(last_failure) if last_failure else None
+                FailureRecord.from_dict(last_failure)
+                if isinstance(last_failure, dict)
+                else None
             ),
             last_source_reset=(
                 SourceResetRecord.from_dict(last_source_reset)
-                if last_source_reset
+                if isinstance(last_source_reset, dict)
                 else None
             ),
         )
@@ -389,6 +413,8 @@ def migrate_storage(data: dict[str, Any], from_version: int) -> dict[str, Any]:
     if from_version < 4:
         if migrated.get("cumulative_billable") is not None:
             migrated["cumulative_billable_energy"] = migrated.pop("cumulative_billable")
+        elif migrated.get("cumulative_billable_energy") is None:
+            migrated["cumulative_billable_energy"] = 0.0
         last_interval = migrated.get("last_interval")
         if isinstance(last_interval, dict) and "billable_grid_kwh" in last_interval:
             last_interval["billable_energy_kwh"] = last_interval.pop(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from unittest.mock import AsyncMock
 
 import pytest
 from freezegun import freeze_time
@@ -486,3 +487,21 @@ async def test_cumulative_totals_never_decrease(
         )
         await manager.async_process_now()
     assert manager.data.cumulative_receiver_import >= first_total
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_setup_recovers_from_invalid_stored_data(
+    hass: HomeAssistant,
+    mock_config_entry_percentage_only: MockConfigEntry,
+) -> None:
+    mock_config_entry_percentage_only.add_to_hass(hass)
+    await hass.config_entries.async_setup(mock_config_entry_percentage_only.entry_id)
+    await hass.async_block_till_done()
+
+    manager = mock_config_entry_percentage_only.runtime_data.manager
+    manager.storage.async_load = AsyncMock(
+        return_value={"version": 4, "last_interval": 123}
+    )
+
+    await manager.async_setup()
+    assert manager.data.version == 4
