@@ -16,6 +16,7 @@ from homeassistant.helpers.event import async_call_later, async_track_state_chan
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    CONF_ACTIVE_LOAD_CONTROL_ENABLED,
     CONF_ACTIVE_LOAD_CONTROL_TICK_SECONDS,
     CONF_ACTIVE_LOAD_CORRECTION_GAIN,
     CONF_ACTIVE_LOAD_ENERGY_DEADBAND_WH,
@@ -27,6 +28,7 @@ from .const import (
     CONF_ACTIVE_LOAD_PREDICTIVE_EARLY_STOP,
     CONF_ACTIVE_LOAD_PREDICTIVE_MARGIN_WH,
     CONF_ACTIVE_LOAD_STARTUP_GRACE_SECONDS,
+    DEFAULT_ACTIVE_LOAD_CONTROL_ENABLED,
     DEFAULT_ACTIVE_LOAD_CONTROL_TICK_SECONDS,
     DEFAULT_ACTIVE_LOAD_CORRECTION_GAIN,
     DEFAULT_ACTIVE_LOAD_ENERGY_DEADBAND_WH,
@@ -133,6 +135,15 @@ class ActiveLoadController:
     def has_loads(self) -> bool:
         return bool(self._loads)
 
+    @property
+    def control_enabled(self) -> bool:
+        return bool(
+            self._opt(
+                CONF_ACTIVE_LOAD_CONTROL_ENABLED,
+                DEFAULT_ACTIVE_LOAD_CONTROL_ENABLED,
+            )
+        )
+
     def _opt(self, key: str, default: Any) -> Any:
         return self._manager.get_option(key, default)
 
@@ -206,6 +217,7 @@ class ActiveLoadController:
             "available_load_count": len(
                 [load for load in self._loads if self._is_load_available(load)]
             ),
+            "control_enabled": self.control_enabled,
             "loads": [
                 {
                     "switch_entity_id": load.config.switch_entity_id,
@@ -304,6 +316,9 @@ class ActiveLoadController:
             return
         self._refresh_all_states()
 
+        if not self.control_enabled:
+            return
+
         remaining_wh = max(0.0, self._interval.interval_target_wh - self._interval.measured_total_wh)
         deadband_wh = float(self._opt(CONF_ACTIVE_LOAD_ENERGY_DEADBAND_WH, DEFAULT_ACTIVE_LOAD_ENERGY_DEADBAND_WH))
         predictive_stop = bool(self._opt(CONF_ACTIVE_LOAD_PREDICTIVE_EARLY_STOP, DEFAULT_ACTIVE_LOAD_PREDICTIVE_EARLY_STOP))
@@ -357,6 +372,8 @@ class ActiveLoadController:
             remaining_wh -= assigned
 
     async def _async_turn_on_load(self, load: ActiveLoadRuntime, reason: str) -> None:
+        if not self.control_enabled:
+            return
         min_off = int(self._opt(CONF_ACTIVE_LOAD_MIN_OFF_SECONDS, DEFAULT_ACTIVE_LOAD_MIN_OFF_SECONDS))
         now = dt_util.now()
         if load.last_stop_ts and (now - load.last_stop_ts).total_seconds() < min_off:
@@ -376,6 +393,8 @@ class ActiveLoadController:
         load.skip_reason = reason
 
     async def _async_turn_off_load(self, load: ActiveLoadRuntime, reason: str) -> None:
+        if not self.control_enabled:
+            return
         context = Context()
         await self.hass.services.async_call(
             "switch",

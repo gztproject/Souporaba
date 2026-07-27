@@ -117,6 +117,10 @@ Each configured active load is a pair:
 - `priority` (order in options)
 - `enabled`
 
+Global control option:
+
+- `active_load_control_enabled` - when `false`, the integration keeps monitoring and learning measured power, but does not issue switch ON/OFF service calls.
+
 Notes:
 
 - Switch ON state does not imply consumption. Control and learning are based on measured power.

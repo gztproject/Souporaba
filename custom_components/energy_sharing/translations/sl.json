@@ -42,6 +42,7 @@
           "provider_export_total_source": "Skupni izvoz oddajnika (neobvezno)",
           "fixed_allocation_percentage": "Fiksni odstotek dodelitve (neobvezno)",
           "active_load_switches": "Stikala aktivnih bremen (neobvezno)",
+          "active_load_control_enabled": "Omogoči aktivno krmiljenje bremen",
           "interval_minutes": "Dolžina intervala (minute)",
           "processing_delay": "Zakasnitev obdelave po meji intervala (sekunde)",
           "max_wait": "Najdaljše čakanje na posodobitev virov (sekunde)",

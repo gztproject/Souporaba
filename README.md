@@ -96,6 +96,7 @@ Brand images live in `custom_components/energy_sharing/brand/` (`icon.png`, `log
    - Total received shared energy cumulative sensor (e.g. `sensor.receiver_shared_energy_total`)
    - Fixed allocation percentage and/or Oddajnik (Provider) total grid export (e.g. `sensor.provider_grid_export_total`)
 4. In **Options**, configure optional **Active load switches**:
+   - Enable/disable global active-load control (`active_load_control_enabled`)
    - Select one or more switch entities (e.g. boiler contactors)
    - Pair each switch with a real-time power sensor (`W` or `kW`)
    - Ordering defines priority
@@ -104,6 +105,7 @@ Brand images live in `custom_components/energy_sharing/brand/` (`icon.png`, `log
 ## Active load behavior
 
 - Control is driven by measured power/energy, not by switch ON state alone.
+- When global active-load control is disabled, integration still monitors power and learns load behavior but performs no switch ON/OFF calls.
 - If a load is ON but measured power stays near zero (e.g. thermostat opened), the controller marks it idle for the interval and reallocates target energy to other loads.
 - The integration only turns OFF switches it turned ON itself.
 - User/manual ON loads are never auto-turned-off by the integration.

@@ -15,6 +15,7 @@ from homeassistant.helpers import selector
 
 from . import EnergySharingConfigEntry
 from .const import (
+    CONF_ACTIVE_LOAD_CONTROL_ENABLED,
     CONF_ACTIVE_LOAD_ENABLED,
     CONF_ACTIVE_LOAD_POWER_SENSOR_ENTITY_ID,
     CONF_ACTIVE_LOAD_PRIORITY,
@@ -40,6 +41,7 @@ from .const import (
     CONF_SOURCE_FRESHNESS_TOLERANCE,
     CONFIG_ENTRY_MINOR_VERSION,
     CONFIG_ENTRY_VERSION,
+    DEFAULT_ACTIVE_LOAD_CONTROL_ENABLED,
     DEFAULT_ACTIVE_LOADS,
     DEFAULT_INTERVAL_MINUTES,
     DEFAULT_MAX_WAIT,
@@ -129,6 +131,7 @@ def _default_options() -> dict[str, Any]:
         CONF_SOURCE_FRESHNESS_TOLERANCE: DEFAULT_SOURCE_FRESHNESS_TOLERANCE,
         CONF_RECONCILIATION_FAILURE_MODE: DEFAULT_RECONCILIATION_FAILURE_MODE,
         CONF_ACTIVE_LOADS: DEFAULT_ACTIVE_LOADS,
+        CONF_ACTIVE_LOAD_CONTROL_ENABLED: DEFAULT_ACTIVE_LOAD_CONTROL_ENABLED,
     }
 
 
@@ -215,6 +218,13 @@ def _options_schema(defaults: dict[str, Any]) -> vol.Schema:
         vol.Optional("active_load_switches", default=active_load_switches): (
             _SWITCH_MULTI_SELECTOR
         ),
+        vol.Required(
+            CONF_ACTIVE_LOAD_CONTROL_ENABLED,
+            default=defaults.get(
+                CONF_ACTIVE_LOAD_CONTROL_ENABLED,
+                DEFAULT_ACTIVE_LOAD_CONTROL_ENABLED,
+            ),
+        ): selector.BooleanSelector(),
         vol.Required(
             CONF_RECONCILIATION_FAILURE_MODE,
             default=defaults.get(

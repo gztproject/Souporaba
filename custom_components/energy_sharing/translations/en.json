@@ -42,6 +42,7 @@
           "provider_export_total_source": "Provider total grid export (optional)",
           "fixed_allocation_percentage": "Fixed allocation percentage (optional)",
           "active_load_switches": "Active load switches (optional)",
+          "active_load_control_enabled": "Enable active load control",
           "interval_minutes": "Interval length (minutes)",
           "processing_delay": "Processing delay after interval boundary (seconds)",
           "max_wait": "Maximum wait for source updates (seconds)",

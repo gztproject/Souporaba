@@ -11,6 +11,7 @@ from custom_components.energy_sharing.active_loads import (
     parse_power_watts,
 )
 from custom_components.energy_sharing.const import (
+    CONF_ACTIVE_LOAD_CONTROL_ENABLED,
     CONF_ACTIVE_LOAD_POWER_SENSOR_ENTITY_ID,
     CONF_ACTIVE_LOAD_SWITCH_ENTITY_ID,
     CONF_ACTIVE_LOADS,
@@ -71,4 +72,29 @@ async def test_manual_switch_change_releases_ownership(hass: HomeAssistant) -> N
     snapshot_before = controller.get_snapshot()
     assert snapshot_before["loads"][0]["owns_switch"] is False
 
+    await controller.async_unload()
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_control_disabled_suppresses_switch_calls(hass: HomeAssistant) -> None:
+    manager = _FakeManager({CONF_ACTIVE_LOAD_CONTROL_ENABLED: False})
+    controller = ActiveLoadController(
+        hass,
+        manager,
+        [
+            ActiveLoadConfig(
+                switch_entity_id="switch.boiler_a",
+                power_sensor_entity_id="sensor.boiler_a_power",
+                priority=0,
+                enabled=True,
+            )
+        ],
+        interval_minutes=15,
+    )
+    await controller.async_setup()
+    load = controller._loads[0]  # noqa: SLF001
+    await controller._async_turn_on_load(load, reason="test")  # noqa: SLF001
+    assert load.owns_switch is False
+    await controller._async_turn_off_load(load, reason="test")  # noqa: SLF001
+    assert load.owns_switch is False
     await controller.async_unload()
