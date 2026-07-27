@@ -12,10 +12,12 @@ from custom_components.energy_sharing.const import (
     MODE_PERCENTAGE_ONLY,
 )
 from custom_components.energy_sharing.models import (
+    StorageData,
     calculate_interval_delta,
     calculate_settlement,
     clamp,
     evaluate_reconciliation,
+    migrate_storage,
     resolve_operating_mode,
 )
 
@@ -132,3 +134,38 @@ def test_reconciliation_tolerances() -> None:
     assert evaluate_reconciliation(0.7, 0.705, 0.01, 0.0)["reconciled"] is True
     assert evaluate_reconciliation(0.7, 0.734, 0.0, 5.0)["reconciled"] is True
     assert evaluate_reconciliation(0.7, 0.8, 0.001, 1.0)["reconciled"] is False
+
+
+def test_migrate_storage_v3_billable_keys() -> None:
+    payload = {
+        "version": 3,
+        "cumulative_billable": 1.23,
+        "last_interval": {"billable_grid_kwh": 0.45},
+    }
+    migrated = migrate_storage(payload, 3)
+    assert migrated["version"] == 4
+    assert migrated["cumulative_billable_energy"] == pytest.approx(1.23)
+    assert "cumulative_billable" not in migrated
+    assert migrated["last_interval"]["billable_energy_kwh"] == pytest.approx(0.45)
+
+
+def test_storage_from_dict_tolerates_malformed_nested_data() -> None:
+    payload = {
+        "version": 4,
+        "baseline_initialized": True,
+        "previous_snapshot": 123,
+        "last_interval": "invalid",
+        "last_failure": [],
+        "last_source_reset": None,
+        "cumulative_receiver_import": "10.5",
+        "cumulative_billable_energy": "not-a-number",
+        "processed_intervals": "7",
+    }
+    storage = StorageData.from_dict(payload)
+    assert storage.baseline_initialized is True
+    assert storage.previous_snapshot is None
+    assert storage.last_interval is None
+    assert storage.last_failure is None
+    assert storage.cumulative_receiver_import == pytest.approx(10.5)
+    assert storage.cumulative_billable_energy == pytest.approx(0.0)
+    assert storage.processed_intervals == 7
