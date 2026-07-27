@@ -17,6 +17,8 @@ Instead, it reads **cumulative energy counters** and creates aligned 15-minute s
 | Total received shared energy | Yes | Cumulative energy allocated to the receiver |
 | Fixed allocation percentage | Conditional | Required when Oddajnik (Provider) export is not supplied |
 | Oddajnik (Provider) total grid export | Conditional | Full cumulative exported surplus of the provider |
+| Active load switches | Optional | One or more controllable switches used to absorb excess shared energy |
+| Active load power sensors | Optional | Real-time power sensors paired with each active load switch (`W` or `kW`) |
 
 **At least one** of fixed allocation percentage or provider total grid export must be configured.
 
@@ -105,6 +107,22 @@ Reconciliation `skip_interval` mode skips accumulation of settlement totals but 
 Without a source-provided measurement timestamp on the cumulative entities, exact boundary attribution depends on how quickly the source entities update after each boundary. Optional timestamp attribute names can be configured in the options flow.
 
 Missed historical intervals cannot always be reconstructed when only the latest cumulative reading is available.
+
+## Active loads (optional)
+
+Each configured active load is a pair:
+
+- `switch_entity_id`
+- `power_sensor_entity_id`
+- `priority` (order in options)
+- `enabled`
+
+Notes:
+
+- Switch ON state does not imply consumption. Control and learning are based on measured power.
+- If a switch is ON but measured power remains below threshold after startup grace, load is treated as idle for the interval.
+- Integration can reallocate remaining interval target to other configured loads.
+- Integration only turns OFF loads it previously turned ON.
 
 ## Reconciliation (export + percentage mode)
 

@@ -36,6 +36,7 @@ The integration **recommends and monitors**; you **register and confirm** sharin
 3. Creates aligned 15-minute intervals internally.
 4. Calculates interval deltas from persisted boundary snapshots.
 5. Computes settlement values, optional reconciliation, and integration-owned cumulative totals.
+6. Optionally controls multiple active-load switches based on measured real-time power.
 
 ## Input entities
 
@@ -94,6 +95,29 @@ Brand images live in `custom_components/energy_sharing/brand/` (`icon.png`, `log
    - Prejemnik (Receiver) total grid import cumulative sensor (e.g. `sensor.receiver_grid_import_total`)
    - Total received shared energy cumulative sensor (e.g. `sensor.receiver_shared_energy_total`)
    - Fixed allocation percentage and/or Oddajnik (Provider) total grid export (e.g. `sensor.provider_grid_export_total`)
+4. In **Options**, configure optional **Active load switches**:
+   - Select one or more switch entities (e.g. boiler contactors)
+   - Pair each switch with a real-time power sensor (`W` or `kW`)
+   - Ordering defines priority
+   - Each load can be enabled/disabled for manual override
+
+## Active load behavior
+
+- Control is driven by measured power/energy, not by switch ON state alone.
+- If a load is ON but measured power stays near zero (e.g. thermostat opened), the controller marks it idle for the interval and reallocates target energy to other loads.
+- The integration only turns OFF switches it turned ON itself.
+- User/manual ON loads are never auto-turned-off by the integration.
+- Optional predictive early-stop can turn owned loads off before scheduled runtime if measured interval energy is about to exceed target/deadband.
+
+Example with two boilers:
+
+- Boiler A ~2000 W, Boiler B ~1500 W
+- Previous-interval active-load target: 625 Wh
+- Boiler A can receive up to ~500 Wh in 15 minutes
+- Boiler B receives remaining ~125 Wh (~5 minutes)
+- If Boiler A draws ~0 W because thermostat is satisfied, allocation is recalculated and shifted to Boiler B where possible.
+
+Actual implementation always uses measured power values from sensors; these nominal values are illustrative only.
 
 ## Services
 
