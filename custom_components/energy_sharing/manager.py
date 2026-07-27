@@ -238,7 +238,17 @@ class EnergySharingManager:
     async def async_setup(self) -> None:
         stored = await self.storage.async_load()
         if stored is not None:
-            self.data = StorageData.from_dict(stored)
+            try:
+                self.data = StorageData.from_dict(stored)
+            except Exception:  # pragma: no cover - defensive hotfix path
+                _LOGGER.warning(
+                    "Failed to load existing storage for %s; "
+                    "resetting runtime storage state",
+                    self.entry.title,
+                    exc_info=True,
+                )
+                self.data = StorageData()
+                await self.storage.async_save(self.data.to_dict())
 
         device_registry = dr.async_get(self.hass)
         device_registry.async_get_or_create(
