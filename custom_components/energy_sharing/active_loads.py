@@ -198,6 +198,12 @@ class ActiveLoadController:
                     )
                 )
                 learn_seconds = max(min_on, startup_grace + 1)
+                min_active_power = float(
+                    self._opt(
+                        CONF_ACTIVE_LOAD_MIN_ACTIVE_POWER_W,
+                        DEFAULT_ACTIVE_LOAD_MIN_ACTIVE_POWER_W,
+                    )
+                )
                 calibrated = 0
                 considered = 0
 
@@ -239,10 +245,25 @@ class ActiveLoadController:
                                 seconds=startup_grace + 1
                             )
 
-                        await asyncio.sleep(learn_seconds)
-                        self._refresh_single_load_state(load)
+                        timeout_seconds = max(learn_seconds, startup_grace + 30)
+                        elapsed = 0
+                        poll_seconds = 5
                         previous_estimate = load.estimated_power_w
-                        self._update_learning(load)
+                        while elapsed < timeout_seconds:
+                            wait_step = min(poll_seconds, timeout_seconds - elapsed)
+                            await asyncio.sleep(wait_step)
+                            elapsed += wait_step
+                            self._refresh_single_load_state(load)
+                            self._update_learning(load)
+                            if load.estimated_power_w is not None:
+                                break
+                        _LOGGER.info(
+                            "Active load calibration window for %s: %ss (threshold=%.1fW measured=%.1fW)",
+                            load.config.switch_entity_id,
+                            elapsed,
+                            min_active_power,
+                            load.measured_power_w,
+                        )
                         if load.estimated_power_w is not None:
                             calibrated += 1
                             _LOGGER.info(
@@ -257,12 +278,7 @@ class ActiveLoadController:
                                 "(measured=%.1fW threshold=%.1fW)",
                                 load.config.switch_entity_id,
                                 load.measured_power_w,
-                                float(
-                                    self._opt(
-                                        CONF_ACTIVE_LOAD_MIN_ACTIVE_POWER_W,
-                                        DEFAULT_ACTIVE_LOAD_MIN_ACTIVE_POWER_W,
-                                    )
-                                ),
+                                min_active_power,
                             )
                         if (
                             previous_estimate is not None
