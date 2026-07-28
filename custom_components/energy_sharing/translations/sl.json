@@ -76,6 +76,9 @@
     }
   },
   "entity": {
+    "button": {
+      "calibrate_active_loads": {"name": "Umeri aktivna bremena"}
+    },
     "sensor": {
       "receiver_import_last_interval": {"name": "Omrežni prevzem prejemnika (zadnji interval)"},
       "shared_energy_last_interval": {"name": "Prejeta souporabna energija (zadnji interval)"},
@@ -138,6 +141,10 @@
     "reinitialize_baseline": {
       "name": "Ponovno inicializiraj izhodišče",
       "description": "Zabeleži trenutne kumulativne vrednosti kot novo izhodišče brez ponastavitve seštevkov integracije."
+    },
+    "calibrate_loads": {
+      "name": "Umeri aktivna bremena",
+      "description": "Zaporedno vzorči nastavljena aktivna bremena in inicializira ocene izmerjene moči."
     }
   },
   "status": {

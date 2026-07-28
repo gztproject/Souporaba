@@ -76,6 +76,9 @@
     }
   },
   "entity": {
+    "button": {
+      "calibrate_active_loads": {"name": "Calibrate active loads"}
+    },
     "sensor": {
       "receiver_import_last_interval": {"name": "Receiver grid import (last interval)"},
       "shared_energy_last_interval": {"name": "Received shared energy (last interval)"},
@@ -138,6 +141,10 @@
     "reinitialize_baseline": {
       "name": "Reinitialize baseline",
       "description": "Record current cumulative source totals as a fresh baseline without resetting integration-owned totals."
+    },
+    "calibrate_loads": {
+      "name": "Calibrate active loads",
+      "description": "Sequentially sample configured active loads and initialize measured-power estimates."
     }
   },
   "status": {

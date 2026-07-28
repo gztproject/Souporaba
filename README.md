@@ -128,6 +128,7 @@ Actual implementation always uses measured power values from sensors; these nomi
 - `energy_sharing.reset_totals` — reset integration-owned cumulative totals (requires `confirm: true`)
 - `energy_sharing.reinitialize_baseline` — record current source totals as a fresh baseline
 - `energy_sharing.calibrate_loads` — sequentially sample active loads to establish starting power estimates
+- Device button: **Calibrate active loads** — available on the integration device page and triggers the same calibration flow
 
 ## Migration from earlier versions
 

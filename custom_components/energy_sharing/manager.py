@@ -339,9 +339,6 @@ class EnergySharingManager:
             self.status = STATUS_WAITING_FOR_BOUNDARY
 
     def _register_services(self) -> None:
-        if self.hass.services.has_service(DOMAIN, SERVICE_PROCESS_NOW):
-            return
-
         async def process_now_service(call: Any) -> None:
             entry = await self._resolve_entry_from_service(call)
             if entry is None:
@@ -372,22 +369,26 @@ class EnergySharingManager:
             result = await entry.runtime_data.manager.async_calibrate_active_loads()
             _LOGGER.info("calibrate_loads result for %s: %s", entry.title, result)
 
-        self.hass.services.async_register(
-            DOMAIN, SERVICE_PROCESS_NOW, process_now_service
-        )
-        self.hass.services.async_register(
-            DOMAIN, SERVICE_RESET_TOTALS, reset_totals_service
-        )
-        self.hass.services.async_register(
-            DOMAIN,
-            SERVICE_REINITIALIZE_BASELINE,
-            reinitialize_baseline_service,
-        )
-        self.hass.services.async_register(
-            DOMAIN,
-            SERVICE_CALIBRATE_LOADS,
-            calibrate_loads_service,
-        )
+        if not self.hass.services.has_service(DOMAIN, SERVICE_PROCESS_NOW):
+            self.hass.services.async_register(
+                DOMAIN, SERVICE_PROCESS_NOW, process_now_service
+            )
+        if not self.hass.services.has_service(DOMAIN, SERVICE_RESET_TOTALS):
+            self.hass.services.async_register(
+                DOMAIN, SERVICE_RESET_TOTALS, reset_totals_service
+            )
+        if not self.hass.services.has_service(DOMAIN, SERVICE_REINITIALIZE_BASELINE):
+            self.hass.services.async_register(
+                DOMAIN,
+                SERVICE_REINITIALIZE_BASELINE,
+                reinitialize_baseline_service,
+            )
+        if not self.hass.services.has_service(DOMAIN, SERVICE_CALIBRATE_LOADS):
+            self.hass.services.async_register(
+                DOMAIN,
+                SERVICE_CALIBRATE_LOADS,
+                calibrate_loads_service,
+            )
 
     async def _resolve_entry_from_service(
         self, call: Any
