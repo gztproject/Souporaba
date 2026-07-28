@@ -60,6 +60,7 @@ from .const import (
     RECONCILIATION_MISMATCH_WARN,
     RECONCILIATION_MODE_SKIP_INTERVAL,
     RECONCILIATION_NOT_CONFIGURED,
+    SERVICE_CALIBRATE_LOADS,
     SERVICE_CONFIRM,
     SERVICE_PROCESS_NOW,
     SERVICE_REINITIALIZE_BASELINE,
@@ -364,6 +365,13 @@ class EnergySharingManager:
             result = await entry.runtime_data.manager.async_reinitialize_baseline()
             _LOGGER.info("reinitialize_baseline result for %s: %s", entry.title, result)
 
+        async def calibrate_loads_service(call: Any) -> None:
+            entry = await self._resolve_entry_from_service(call)
+            if entry is None:
+                raise HomeAssistantError("config_entry_not_found")
+            result = await entry.runtime_data.manager.async_calibrate_active_loads()
+            _LOGGER.info("calibrate_loads result for %s: %s", entry.title, result)
+
         self.hass.services.async_register(
             DOMAIN, SERVICE_PROCESS_NOW, process_now_service
         )
@@ -374,6 +382,11 @@ class EnergySharingManager:
             DOMAIN,
             SERVICE_REINITIALIZE_BASELINE,
             reinitialize_baseline_service,
+        )
+        self.hass.services.async_register(
+            DOMAIN,
+            SERVICE_CALIBRATE_LOADS,
+            calibrate_loads_service,
         )
 
     async def _resolve_entry_from_service(
@@ -485,6 +498,14 @@ class EnergySharingManager:
             self.status = STATUS_INITIALIZING_BASELINE
             self._notify_update()
             return "baseline_reinitialized"
+
+    async def async_calibrate_active_loads(self) -> dict[str, int]:
+        if (
+            self._active_load_controller is None
+            or not self._active_load_controller.has_loads
+        ):
+            raise HomeAssistantError("active_loads_not_configured")
+        return await self._active_load_controller.async_calibrate_loads()
 
     async def _async_process_latest(self, trigger: str) -> str:
         async with self._processing_lock:

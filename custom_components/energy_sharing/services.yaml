@@ -25,3 +25,10 @@ reinitialize_baseline:
   target:
     device:
       integration: energy_sharing
+
+calibrate_loads:
+  name: Calibrate / learn active loads
+  description: Sequentially sample configured active loads to initialize measured-power estimates. Loads already ON are measured without being turned off.
+  target:
+    device:
+      integration: energy_sharing

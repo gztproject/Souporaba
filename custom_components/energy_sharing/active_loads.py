@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 import time
@@ -130,6 +131,7 @@ class ActiveLoadController:
         self._state_unsubs: list[CALLBACK_TYPE] = []
         self._interval = ActiveLoadIntervalState()
         self._last_monotonic: float | None = None
+        self._calibration_lock = asyncio.Lock()
 
     @property
     def has_loads(self) -> bool:
@@ -161,6 +163,61 @@ class ActiveLoadController:
         for load in self._loads:
             if load.owns_switch:
                 await self._async_turn_off_load(load, reason="unload")
+
+    async def async_calibrate_loads(self) -> dict[str, int]:
+        """Sequentially learn baseline load power from real measurements."""
+        async with self._calibration_lock:
+            startup_grace = int(
+                self._opt(
+                    CONF_ACTIVE_LOAD_STARTUP_GRACE_SECONDS,
+                    DEFAULT_ACTIVE_LOAD_STARTUP_GRACE_SECONDS,
+                )
+            )
+            min_on = int(
+                self._opt(CONF_ACTIVE_LOAD_MIN_ON_SECONDS, DEFAULT_ACTIVE_LOAD_MIN_ON_SECONDS)
+            )
+            learn_seconds = max(min_on, startup_grace + 1)
+            calibrated = 0
+            considered = 0
+
+            for load in self._loads:
+                self._refresh_single_load_state(load)
+                if not load.config.enabled or not load.switch_available:
+                    continue
+                considered += 1
+                started_by_calibration = False
+
+                if not load.switch_is_on:
+                    await self._async_turn_on_load(
+                        load, reason="calibration", force=True
+                    )
+                    started_by_calibration = True
+                    self._refresh_single_load_state(load)
+
+                if not load.switch_is_on:
+                    continue
+
+                # For manually-on loads, allow immediate learning from stable draw.
+                if load.last_start_ts is None:
+                    load.last_start_ts = dt_util.now() - timedelta(
+                        seconds=startup_grace + 1
+                    )
+
+                await asyncio.sleep(learn_seconds)
+                self._refresh_single_load_state(load)
+                self._update_learning(load)
+                if load.estimated_power_w is not None:
+                    calibrated += 1
+
+                if started_by_calibration:
+                    await self._async_turn_off_load(
+                        load, reason="calibration_done", force=True
+                    )
+
+            return {
+                "calibrated_loads": calibrated,
+                "considered_loads": considered,
+            }
 
     def update_configuration(self, loads: list[ActiveLoadConfig], interval_minutes: int) -> None:
         self._loads = [
@@ -294,9 +351,11 @@ class ActiveLoadController:
         threshold = float(self._opt(CONF_ACTIVE_LOAD_MIN_ACTIVE_POWER_W, DEFAULT_ACTIVE_LOAD_MIN_ACTIVE_POWER_W))
         startup_grace = int(self._opt(CONF_ACTIVE_LOAD_STARTUP_GRACE_SECONDS, DEFAULT_ACTIVE_LOAD_STARTUP_GRACE_SECONDS))
         now = dt_util.now()
-        if not load.switch_is_on or load.last_start_ts is None:
+        if not load.switch_is_on:
             return
-        if (now - load.last_start_ts).total_seconds() < startup_grace:
+        # Learn from any ON period (manual, other automation, or integration-owned).
+        # Startup grace only applies when we know the recent start timestamp.
+        if load.last_start_ts and (now - load.last_start_ts).total_seconds() < startup_grace:
             return
         if load.measured_power_w <= threshold:
             return
@@ -371,8 +430,10 @@ class ActiveLoadController:
             load.scheduled_runtime_s = assigned * 3600.0 / p if p > 0 else 0.0
             remaining_wh -= assigned
 
-    async def _async_turn_on_load(self, load: ActiveLoadRuntime, reason: str) -> None:
-        if not self.control_enabled:
+    async def _async_turn_on_load(
+        self, load: ActiveLoadRuntime, reason: str, *, force: bool = False
+    ) -> None:
+        if not self.control_enabled and not force:
             return
         min_off = int(self._opt(CONF_ACTIVE_LOAD_MIN_OFF_SECONDS, DEFAULT_ACTIVE_LOAD_MIN_OFF_SECONDS))
         now = dt_util.now()
@@ -392,8 +453,10 @@ class ActiveLoadController:
         load.last_integration_context_id = context.id
         load.skip_reason = reason
 
-    async def _async_turn_off_load(self, load: ActiveLoadRuntime, reason: str) -> None:
-        if not self.control_enabled:
+    async def _async_turn_off_load(
+        self, load: ActiveLoadRuntime, reason: str, *, force: bool = False
+    ) -> None:
+        if not self.control_enabled and not force:
             return
         context = Context()
         await self.hass.services.async_call(
@@ -511,6 +574,7 @@ class ActiveLoadController:
     @callback
     def _handle_switch_change(self, event: Any) -> None:
         entity_id = event.data.get("entity_id")
+        old_state = event.data.get("old_state")
         new_state = event.data.get("new_state")
         if new_state is None:
             return
@@ -524,9 +588,18 @@ class ActiveLoadController:
         )
         if matched is None:
             return
+        now = dt_util.now()
+        was_on = bool(old_state and old_state.state == "on")
+        is_on = new_state.state == "on"
         context_id = getattr(new_state.context, "id", None)
         if context_id is not None and context_id == matched.last_integration_context_id:
             return
+        if is_on and not was_on:
+            matched.last_start_ts = now
+            matched.below_threshold_since = None
+        elif was_on and not is_on:
+            matched.last_stop_ts = now
+            matched.startup_probing = False
         # User/manual action: release ownership and exclude for current interval.
         matched.owns_switch = False
         if self._interval.interval_id is not None:

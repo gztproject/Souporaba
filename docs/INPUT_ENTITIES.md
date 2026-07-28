@@ -124,9 +124,11 @@ Global control option:
 Notes:
 
 - Switch ON state does not imply consumption. Control and learning are based on measured power.
+- Learning uses integration-owned and manual/externally-turned-ON load periods.
 - If a switch is ON but measured power remains below threshold after startup grace, load is treated as idle for the interval.
 - Integration can reallocate remaining interval target to other configured loads.
 - Integration only turns OFF loads it previously turned ON.
+- You can run `energy_sharing.calibrate_loads` to sequentially sample configured loads and bootstrap `estimated_power_w` after setup or upgrades.
 
 ## Reconciliation (export + percentage mode)
 

@@ -130,6 +130,7 @@ STORAGE_KEY: Final = "energy_sharing.storage"
 SERVICE_PROCESS_NOW: Final = "process_now"
 SERVICE_RESET_TOTALS: Final = "reset_totals"
 SERVICE_REINITIALIZE_BASELINE: Final = "reinitialize_baseline"
+SERVICE_CALIBRATE_LOADS: Final = "calibrate_loads"
 SERVICE_CONFIRM: Final = "confirm"
 
 # Processing statuses

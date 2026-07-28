@@ -106,6 +106,7 @@ Brand images live in `custom_components/energy_sharing/brand/` (`icon.png`, `log
 
 - Control is driven by measured power/energy, not by switch ON state alone.
 - When global active-load control is disabled, integration still monitors power and learns load behavior but performs no switch ON/OFF calls.
+- Learning includes loads turned ON manually or by other automations (not only integration-owned starts).
 - If a load is ON but measured power stays near zero (e.g. thermostat opened), the controller marks it idle for the interval and reallocates target energy to other loads.
 - The integration only turns OFF switches it turned ON itself.
 - User/manual ON loads are never auto-turned-off by the integration.
@@ -126,6 +127,7 @@ Actual implementation always uses measured power values from sensors; these nomi
 - `energy_sharing.process_now` — process the latest eligible boundary
 - `energy_sharing.reset_totals` — reset integration-owned cumulative totals (requires `confirm: true`)
 - `energy_sharing.reinitialize_baseline` — record current source totals as a fresh baseline
+- `energy_sharing.calibrate_loads` — sequentially sample active loads to establish starting power estimates
 
 ## Migration from earlier versions
 

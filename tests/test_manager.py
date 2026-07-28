@@ -9,6 +9,7 @@ import pytest
 from freezegun import freeze_time
 from homeassistant.const import UnitOfEnergy
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -538,3 +539,12 @@ async def test_setup_recovers_from_invalid_stored_data(
 
     await manager.async_setup()
     assert manager.data.version == 4
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_calibrate_active_loads_requires_configured_loads(
+    setup_percentage_only: MockConfigEntry,
+) -> None:
+    manager = setup_percentage_only.runtime_data.manager
+    with pytest.raises(HomeAssistantError, match="active_loads_not_configured"):
+        await manager.async_calibrate_active_loads()

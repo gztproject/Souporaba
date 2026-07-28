@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, patch
+
 from freezegun import freeze_time
 from homeassistant.core import HomeAssistant
 
@@ -12,7 +14,9 @@ from custom_components.energy_sharing.active_loads import (
 )
 from custom_components.energy_sharing.const import (
     CONF_ACTIVE_LOAD_CONTROL_ENABLED,
+    CONF_ACTIVE_LOAD_MIN_ON_SECONDS,
     CONF_ACTIVE_LOAD_POWER_SENSOR_ENTITY_ID,
+    CONF_ACTIVE_LOAD_STARTUP_GRACE_SECONDS,
     CONF_ACTIVE_LOAD_SWITCH_ENTITY_ID,
     CONF_ACTIVE_LOADS,
 )
@@ -98,3 +102,182 @@ async def test_control_disabled_suppresses_switch_calls(hass: HomeAssistant) -> 
     await controller._async_turn_off_load(load, reason="test")  # noqa: SLF001
     assert load.owns_switch is False
     await controller.async_unload()
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_learning_includes_manual_on_periods(hass: HomeAssistant) -> None:
+    manager = _FakeManager({})
+    controller = ActiveLoadController(
+        hass,
+        manager,
+        [
+            ActiveLoadConfig(
+                switch_entity_id="switch.boiler_a",
+                power_sensor_entity_id="sensor.boiler_a_power",
+                priority=0,
+                enabled=True,
+            )
+        ],
+        interval_minutes=15,
+    )
+    await controller.async_setup()
+    load = controller._loads[0]  # noqa: SLF001
+
+    load.switch_is_on = True
+    load.last_start_ts = None
+    load.measured_power_w = 1250.0
+    controller._update_learning(load)  # noqa: SLF001
+
+    assert load.estimated_power_w == 1250.0
+    await controller.async_unload()
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_manual_switch_on_sets_start_timestamp(hass: HomeAssistant) -> None:
+    manager = _FakeManager({})
+    controller = ActiveLoadController(
+        hass,
+        manager,
+        [
+            ActiveLoadConfig(
+                switch_entity_id="switch.boiler_a",
+                power_sensor_entity_id="sensor.boiler_a_power",
+                priority=0,
+                enabled=True,
+            )
+        ],
+        interval_minutes=15,
+    )
+    await controller.async_setup()
+    load = controller._loads[0]  # noqa: SLF001
+    assert load.last_start_ts is None
+
+    hass.states.async_set("switch.boiler_a", "off")
+    await hass.async_block_till_done()
+    hass.states.async_set("switch.boiler_a", "on")
+    await hass.async_block_till_done()
+
+    assert load.last_start_ts is not None
+    await controller.async_unload()
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_calibrate_loads_learns_and_restores_state(hass: HomeAssistant) -> None:
+    manager = _FakeManager(
+        {
+            CONF_ACTIVE_LOAD_MIN_ON_SECONDS: 0,
+            CONF_ACTIVE_LOAD_STARTUP_GRACE_SECONDS: 0,
+        }
+    )
+    controller = ActiveLoadController(
+        hass,
+        manager,
+        [
+            ActiveLoadConfig(
+                switch_entity_id="switch.boiler_a",
+                power_sensor_entity_id="sensor.boiler_a_power",
+                priority=0,
+                enabled=True,
+            )
+        ],
+        interval_minutes=15,
+    )
+    await controller.async_setup()
+
+    try:
+        hass.states.async_set("switch.boiler_a", "off")
+        hass.states.async_set(
+            "sensor.boiler_a_power",
+            "1450",
+            attributes={"unit_of_measurement": "W", "device_class": "power"},
+        )
+
+        async def _turn_on_service(call):
+            hass.states.async_set(call.data["entity_id"], "on")
+
+        async def _turn_off_service(call):
+            hass.states.async_set(call.data["entity_id"], "off")
+
+        hass.services.async_register("switch", "turn_on", _turn_on_service)
+        hass.services.async_register("switch", "turn_off", _turn_off_service)
+
+        with patch(
+            "custom_components.energy_sharing.active_loads.asyncio.sleep",
+            new=AsyncMock(),
+        ):
+            result = await controller.async_calibrate_loads()
+        await hass.async_block_till_done()
+
+        snapshot = controller.get_snapshot()
+        load = snapshot["loads"][0]
+        assert result["calibrated_loads"] == 1
+        assert result["considered_loads"] == 1
+        assert load["estimated_power_w"] == 1450.0
+        assert hass.states.get("switch.boiler_a").state == "off"
+    finally:
+        await controller.async_unload()
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_calibrate_loads_keeps_manual_on_load_running(
+    hass: HomeAssistant,
+) -> None:
+    manager = _FakeManager(
+        {
+            CONF_ACTIVE_LOAD_MIN_ON_SECONDS: 0,
+            CONF_ACTIVE_LOAD_STARTUP_GRACE_SECONDS: 0,
+        }
+    )
+    controller = ActiveLoadController(
+        hass,
+        manager,
+        [
+            ActiveLoadConfig(
+                switch_entity_id="switch.boiler_a",
+                power_sensor_entity_id="sensor.boiler_a_power",
+                priority=0,
+                enabled=True,
+            )
+        ],
+        interval_minutes=15,
+    )
+    await controller.async_setup()
+
+    try:
+        hass.states.async_set("switch.boiler_a", "on")
+        hass.states.async_set(
+            "sensor.boiler_a_power",
+            "1100",
+            attributes={"unit_of_measurement": "W", "device_class": "power"},
+        )
+        await hass.async_block_till_done()
+
+        calls = {"on": 0, "off": 0}
+
+        async def _turn_on_service(call):
+            calls["on"] += 1
+            hass.states.async_set(call.data["entity_id"], "on")
+
+        async def _turn_off_service(call):
+            calls["off"] += 1
+            hass.states.async_set(call.data["entity_id"], "off")
+
+        hass.services.async_register("switch", "turn_on", _turn_on_service)
+        hass.services.async_register("switch", "turn_off", _turn_off_service)
+
+        with patch(
+            "custom_components.energy_sharing.active_loads.asyncio.sleep",
+            new=AsyncMock(),
+        ):
+            result = await controller.async_calibrate_loads()
+        await hass.async_block_till_done()
+
+        snapshot = controller.get_snapshot()
+        load = snapshot["loads"][0]
+        assert result["calibrated_loads"] == 1
+        assert calls["on"] == 0
+        assert calls["off"] == 0
+        assert load["switch_is_on"] is True
+        assert load["estimated_power_w"] == 1100.0
+    finally:
+        await controller.async_unload()
