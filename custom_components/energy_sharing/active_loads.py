@@ -198,6 +198,7 @@ class ActiveLoadController:
                     )
                 )
                 learn_seconds = max(min_on, startup_grace + 1)
+                switch_on_wait_seconds = max(60, startup_grace + 1)
                 min_active_power = float(
                     self._opt(
                         CONF_ACTIVE_LOAD_MIN_ACTIVE_POWER_W,
@@ -230,12 +231,20 @@ class ActiveLoadController:
                                 load, reason="calibration", force=True
                             )
                             started_by_calibration = True
-                            self._refresh_single_load_state(load)
+                            waited_for_on = 0
+                            while waited_for_on < switch_on_wait_seconds:
+                                self._refresh_single_load_state(load)
+                                if load.switch_is_on:
+                                    break
+                                wait_step = min(2, switch_on_wait_seconds - waited_for_on)
+                                await asyncio.sleep(wait_step)
+                                waited_for_on += wait_step
 
                         if not load.switch_is_on:
                             _LOGGER.info(
-                                "Active load calibration could not turn on %s",
+                                "Active load calibration could not confirm ON state for %s after %ss",
                                 load.config.switch_entity_id,
+                                switch_on_wait_seconds,
                             )
                             continue
 
@@ -245,7 +254,7 @@ class ActiveLoadController:
                                 seconds=startup_grace + 1
                             )
 
-                        timeout_seconds = max(learn_seconds, startup_grace + 30)
+                        timeout_seconds = max(learn_seconds, startup_grace + 60)
                         elapsed = 0
                         poll_seconds = 5
                         previous_estimate = load.estimated_power_w
