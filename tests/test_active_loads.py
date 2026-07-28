@@ -86,6 +86,41 @@ async def test_manual_switch_change_releases_ownership(hass: HomeAssistant) -> N
 
 
 @freeze_time("2026-07-12 15:00:10+02:00")
+async def test_processed_interval_targets_next_control_window(
+    hass: HomeAssistant,
+) -> None:
+    manager = _FakeManager({})
+    controller = ActiveLoadController(
+        hass,
+        manager,
+        [
+            ActiveLoadConfig(
+                switch_entity_id="switch.boiler_a",
+                power_sensor_entity_id="sensor.boiler_a_power",
+                priority=0,
+                enabled=True,
+            )
+        ],
+        interval_minutes=15,
+    )
+    await controller.async_setup()
+    try:
+        hass.states.async_set("switch.boiler_a", "off")
+        hass.states.async_set(
+            "sensor.boiler_a_power",
+            "1500",
+            attributes={"unit_of_measurement": "W", "device_class": "power"},
+        )
+        await hass.async_block_till_done()
+        controller.notify_processed_interval(unused_shared_kwh=0.1)
+        snapshot = controller.get_snapshot()
+        assert snapshot["interval_id"] is not None
+        assert snapshot["seconds_remaining"] > 0
+    finally:
+        await controller.async_unload()
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
 async def test_control_disabled_suppresses_switch_calls(hass: HomeAssistant) -> None:
     manager = _FakeManager({CONF_ACTIVE_LOAD_CONTROL_ENABLED: False})
     controller = ActiveLoadController(

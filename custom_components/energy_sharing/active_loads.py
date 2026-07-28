@@ -336,7 +336,10 @@ class ActiveLoadController:
 
     def notify_processed_interval(self, unused_shared_kwh: float) -> None:
         now = dt_util.now()
-        interval_end = floor_to_interval_boundary(now, self._interval_minutes)
+        # Apply the newly processed interval's budget to the upcoming control window.
+        interval_end = floor_to_interval_boundary(
+            now, self._interval_minutes
+        ) + timedelta(minutes=self._interval_minutes)
         interval_start = interval_end - timedelta(minutes=self._interval_minutes)
         interval_id = f"{dt_util.as_utc(interval_start).isoformat()}|{dt_util.as_utc(interval_end).isoformat()}"
 
