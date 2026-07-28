@@ -382,6 +382,43 @@ STATUS_SENSORS: tuple[EnergySharingSensorDescription, ...] = (
         icon="mdi:timer-outline",
         status=True,
     ),
+    # Beta diagnostics — remove or hide before stable release.
+    EnergySharingSensorDescription(
+        key="active_load_control_enabled",
+        translation_key="active_load_control_enabled",
+        icon="mdi:toggle-switch",
+        status=True,
+    ),
+    EnergySharingSensorDescription(
+        key="active_load_calibration_status",
+        translation_key="active_load_calibration_status",
+        icon="mdi:tune-variant",
+        status=True,
+    ),
+    EnergySharingSensorDescription(
+        key="active_load_estimated_load_count",
+        translation_key="active_load_estimated_load_count",
+        icon="mdi:counter",
+        status=True,
+    ),
+    EnergySharingSensorDescription(
+        key="active_load_correction_wh",
+        translation_key="active_load_correction_wh",
+        icon="mdi:delta",
+        status=True,
+    ),
+    EnergySharingSensorDescription(
+        key="active_load_tracking_error_wh",
+        translation_key="active_load_tracking_error_wh",
+        icon="mdi:chart-bell-curve",
+        status=True,
+    ),
+    EnergySharingSensorDescription(
+        key="active_load_unused_shared_wh",
+        translation_key="active_load_unused_shared_wh",
+        icon="mdi:solar-power-variant-outline",
+        status=True,
+    ),
 )
 
 
@@ -502,18 +539,53 @@ class EnergySharingSensor(SensorEntity):
 
         if description.key.startswith("active_load_"):
             active = self._manager.get_diagnostics_snapshot().get("active_loads") or {}
+            if description.key == "active_load_control_enabled":
+                if not active:
+                    self._attr_native_value = None
+                    self._attr_available = False
+                else:
+                    self._attr_native_value = (
+                        "enabled" if active.get("control_enabled") else "disabled"
+                    )
+                    self._attr_available = True
+                return
+            if description.key == "active_load_calibration_status":
+                if not active:
+                    self._attr_native_value = None
+                    self._attr_available = False
+                else:
+                    self._attr_native_value = (
+                        "running" if active.get("calibration_in_progress") else "idle"
+                    )
+                    self._attr_available = True
+                    self._attr_extra_state_attributes = {
+                        "last_result": active.get("calibration_last_result"),
+                        "last_finished_at": active.get("calibration_last_finished_at"),
+                    }
+                return
             value_map = {
                 "active_load_target_wh": "target_wh",
                 "active_load_measured_wh": "measured_wh",
                 "active_load_remaining_wh": "remaining_wh",
                 "active_load_available_count": "available_load_count",
                 "active_load_seconds_remaining": "seconds_remaining",
+                "active_load_estimated_load_count": "estimated_load_count",
+                "active_load_correction_wh": "applied_correction_wh",
+                "active_load_tracking_error_wh": "tracking_error_wh",
+                "active_load_unused_shared_wh": "last_unused_shared_wh",
             }
-            key = value_map[description.key]
+            key = value_map.get(description.key)
+            if key is None:
+                return
             self._attr_native_value = active.get(key)
             self._attr_available = active != {}
             if active:
-                self._attr_extra_state_attributes = {"loads": active.get("loads", [])}
+                self._attr_extra_state_attributes = {
+                    "loads": active.get("loads", []),
+                    "interval_id": active.get("interval_id"),
+                    "configured_load_count": active.get("configured_load_count"),
+                    "calibration_in_progress": active.get("calibration_in_progress"),
+                }
             return
 
         if description.key == "last_processed_interval_id":

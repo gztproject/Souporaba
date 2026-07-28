@@ -243,6 +243,11 @@ class EnergySharingManager:
         for listener in list(self._update_listeners):
             listener()
 
+    @callback
+    def notify_entities_update(self) -> None:
+        """Notify sensor/button entities that active-load state changed."""
+        self._notify_update()
+
     async def async_setup(self) -> None:
         stored = await self.storage.async_load()
         if stored is not None:
@@ -506,7 +511,11 @@ class EnergySharingManager:
             or not self._active_load_controller.has_loads
         ):
             raise HomeAssistantError("active_loads_not_configured")
-        return await self._active_load_controller.async_calibrate_loads()
+        self._notify_update()
+        try:
+            return await self._active_load_controller.async_calibrate_loads()
+        finally:
+            self._notify_update()
 
     async def _async_process_latest(self, trigger: str) -> str:
         async with self._processing_lock:

@@ -132,10 +132,19 @@ class ActiveLoadController:
         self._interval = ActiveLoadIntervalState()
         self._last_monotonic: float | None = None
         self._calibration_lock = asyncio.Lock()
+        self._calibration_in_progress = False
+        self._calibration_last_result: dict[str, int] | None = None
+        self._calibration_last_finished_at: datetime | None = None
+        self._last_unused_shared_wh: float | None = None
+        self._last_interval_base_target_wh: float | None = None
 
     @property
     def has_loads(self) -> bool:
         return bool(self._loads)
+
+    @property
+    def calibration_in_progress(self) -> bool:
+        return self._calibration_in_progress
 
     @property
     def control_enabled(self) -> bool:
@@ -164,60 +173,130 @@ class ActiveLoadController:
             if load.owns_switch:
                 await self._async_turn_off_load(load, reason="unload")
 
+    def _notify_entity_update(self) -> None:
+        notify = getattr(self._manager, "notify_entities_update", None)
+        if callable(notify):
+            notify()
+
     async def async_calibrate_loads(self) -> dict[str, int]:
         """Sequentially learn baseline load power from real measurements."""
         async with self._calibration_lock:
-            startup_grace = int(
-                self._opt(
-                    CONF_ACTIVE_LOAD_STARTUP_GRACE_SECONDS,
-                    DEFAULT_ACTIVE_LOAD_STARTUP_GRACE_SECONDS,
+            self._calibration_in_progress = True
+            self._notify_entity_update()
+            _LOGGER.info("Active load calibration started")
+            try:
+                startup_grace = int(
+                    self._opt(
+                        CONF_ACTIVE_LOAD_STARTUP_GRACE_SECONDS,
+                        DEFAULT_ACTIVE_LOAD_STARTUP_GRACE_SECONDS,
+                    )
                 )
-            )
-            min_on = int(
-                self._opt(CONF_ACTIVE_LOAD_MIN_ON_SECONDS, DEFAULT_ACTIVE_LOAD_MIN_ON_SECONDS)
-            )
-            learn_seconds = max(min_on, startup_grace + 1)
-            calibrated = 0
-            considered = 0
-
-            for load in self._loads:
-                self._refresh_single_load_state(load)
-                if not load.config.enabled or not load.switch_available:
-                    continue
-                considered += 1
-                started_by_calibration = False
-
-                if not load.switch_is_on:
-                    await self._async_turn_on_load(
-                        load, reason="calibration", force=True
+                min_on = int(
+                    self._opt(
+                        CONF_ACTIVE_LOAD_MIN_ON_SECONDS,
+                        DEFAULT_ACTIVE_LOAD_MIN_ON_SECONDS,
                     )
-                    started_by_calibration = True
+                )
+                learn_seconds = max(min_on, startup_grace + 1)
+                calibrated = 0
+                considered = 0
+
+                for load in self._loads:
                     self._refresh_single_load_state(load)
+                    if not load.config.enabled or not load.switch_available:
+                        _LOGGER.info(
+                            "Active load calibration skipped for %s (enabled=%s available=%s)",
+                            load.config.switch_entity_id,
+                            load.config.enabled,
+                            load.switch_available,
+                        )
+                        continue
+                    considered += 1
+                    started_by_calibration = False
+                    try:
+                        _LOGGER.info(
+                            "Active load calibration learning %s for %ss",
+                            load.config.switch_entity_id,
+                            learn_seconds,
+                        )
+                        if not load.switch_is_on:
+                            await self._async_turn_on_load(
+                                load, reason="calibration", force=True
+                            )
+                            started_by_calibration = True
+                            self._refresh_single_load_state(load)
 
-                if not load.switch_is_on:
-                    continue
+                        if not load.switch_is_on:
+                            _LOGGER.info(
+                                "Active load calibration could not turn on %s",
+                                load.config.switch_entity_id,
+                            )
+                            continue
 
-                # For manually-on loads, allow immediate learning from stable draw.
-                if load.last_start_ts is None:
-                    load.last_start_ts = dt_util.now() - timedelta(
-                        seconds=startup_grace + 1
-                    )
+                        # For manually-on loads, allow immediate learning from stable draw.
+                        if load.last_start_ts is None:
+                            load.last_start_ts = dt_util.now() - timedelta(
+                                seconds=startup_grace + 1
+                            )
 
-                await asyncio.sleep(learn_seconds)
-                self._refresh_single_load_state(load)
-                self._update_learning(load)
-                if load.estimated_power_w is not None:
-                    calibrated += 1
+                        await asyncio.sleep(learn_seconds)
+                        self._refresh_single_load_state(load)
+                        previous_estimate = load.estimated_power_w
+                        self._update_learning(load)
+                        if load.estimated_power_w is not None:
+                            calibrated += 1
+                            _LOGGER.info(
+                                "Active load calibration learned %s: %.1fW (measured=%.1fW)",
+                                load.config.switch_entity_id,
+                                load.estimated_power_w,
+                                load.measured_power_w,
+                            )
+                        else:
+                            _LOGGER.info(
+                                "Active load calibration did not learn %s "
+                                "(measured=%.1fW threshold=%.1fW)",
+                                load.config.switch_entity_id,
+                                load.measured_power_w,
+                                float(
+                                    self._opt(
+                                        CONF_ACTIVE_LOAD_MIN_ACTIVE_POWER_W,
+                                        DEFAULT_ACTIVE_LOAD_MIN_ACTIVE_POWER_W,
+                                    )
+                                ),
+                            )
+                        if (
+                            previous_estimate is not None
+                            and load.estimated_power_w is not None
+                            and previous_estimate != load.estimated_power_w
+                        ):
+                            self._notify_entity_update()
+                    except Exception:  # pragma: no cover - defensive runtime guard
+                        _LOGGER.warning(
+                            "Active load calibration failed for %s",
+                            load.config.switch_entity_id,
+                            exc_info=True,
+                        )
+                    finally:
+                        if started_by_calibration:
+                            await self._async_turn_off_load(
+                                load, reason="calibration_done", force=True
+                            )
+                            self._refresh_single_load_state(load)
 
-                if started_by_calibration:
-                    await self._async_turn_off_load(
-                        load, reason="calibration_done", force=True
-                    )
-
-            return {
-                "calibrated_loads": calibrated,
-                "considered_loads": considered,
-            }
+                result = {
+                    "calibrated_loads": calibrated,
+                    "considered_loads": considered,
+                }
+                self._calibration_last_result = result
+                self._calibration_last_finished_at = dt_util.now()
+                _LOGGER.info(
+                    "Active load calibration finished: %s",
+                    result,
+                )
+                return result
+            finally:
+                self._calibration_in_progress = False
+                self._notify_entity_update()
 
     def update_configuration(self, loads: list[ActiveLoadConfig], interval_minutes: int) -> None:
         self._loads = [
@@ -240,6 +319,8 @@ class ActiveLoadController:
             self._roll_interval(interval_id, interval_end)
 
         base_target_wh = max(unused_shared_kwh * 1000.0, 0.0)
+        self._last_unused_shared_wh = base_target_wh
+        self._last_interval_base_target_wh = base_target_wh
         error_wh = self._interval.previous_target_wh - self._interval.previous_actual_wh
         gain = float(self._opt(CONF_ACTIVE_LOAD_CORRECTION_GAIN, DEFAULT_ACTIVE_LOAD_CORRECTION_GAIN))
         max_corr = float(self._opt(CONF_ACTIVE_LOAD_MAX_CORRECTION_WH, DEFAULT_ACTIVE_LOAD_MAX_CORRECTION_WH))
@@ -250,13 +331,22 @@ class ActiveLoadController:
         self._interval.correction_wh = correction_wh
         self._interval.interval_target_wh = max(0.0, min(base_target_wh + correction_wh, capacity_wh))
 
-        _LOGGER.debug(
-            "Active load target for %s: base=%.3fWh corr=%.3fWh cap=%.3fWh target=%.3fWh",
+        _LOGGER.info(
+            "Active load interval %s: unused=%.3fWh corr=%.3fWh "
+            "cap=%.3fWh target=%.3fWh available_loads=%d estimated_loads=%d",
             interval_id,
             base_target_wh,
             correction_wh,
             capacity_wh,
             self._interval.interval_target_wh,
+            len([load for load in self._loads if self._is_load_available(load)]),
+            len(
+                [
+                    load
+                    for load in self._loads
+                    if load.estimated_power_w is not None and load.config.enabled
+                ]
+            ),
         )
 
     def get_snapshot(self) -> dict[str, Any]:
@@ -274,7 +364,25 @@ class ActiveLoadController:
             "available_load_count": len(
                 [load for load in self._loads if self._is_load_available(load)]
             ),
+            "configured_load_count": len(self._loads),
+            "estimated_load_count": len(
+                [
+                    load
+                    for load in self._loads
+                    if load.estimated_power_w is not None and load.config.enabled
+                ]
+            ),
             "control_enabled": self.control_enabled,
+            "calibration_in_progress": self._calibration_in_progress,
+            "calibration_last_result": self._calibration_last_result,
+            "calibration_last_finished_at": (
+                self._calibration_last_finished_at.isoformat()
+                if self._calibration_last_finished_at is not None
+                else None
+            ),
+            "interval_id": self._interval.interval_id,
+            "last_unused_shared_wh": self._last_unused_shared_wh,
+            "last_interval_base_target_wh": self._last_interval_base_target_wh,
             "loads": [
                 {
                     "switch_entity_id": load.config.switch_entity_id,
@@ -282,15 +390,31 @@ class ActiveLoadController:
                     "priority": load.config.priority,
                     "enabled": load.config.enabled,
                     "switch_is_on": load.switch_is_on,
+                    "switch_available": load.switch_available,
                     "measured_power_w": load.measured_power_w,
                     "estimated_power_w": load.estimated_power_w,
                     "owns_switch": load.owns_switch,
                     "accepting_power": load.accepting_power,
                     "startup_probing": load.startup_probing,
+                    "idle_latched": bool(
+                        self._interval.interval_id
+                        and load.idle_latched_until_interval_id == self._interval.interval_id
+                    ),
+                    "manually_excluded": bool(
+                        self._interval.interval_id
+                        and load.manually_excluded_until_interval_id
+                        == self._interval.interval_id
+                    ),
                     "interval_energy_wh": load.interval_energy_wh,
                     "allocated_target_wh": load.allocated_target_wh,
                     "scheduled_runtime_s": load.scheduled_runtime_s,
                     "skip_reason": load.skip_reason,
+                    "last_start_ts": (
+                        load.last_start_ts.isoformat() if load.last_start_ts else None
+                    ),
+                    "last_stop_ts": (
+                        load.last_stop_ts.isoformat() if load.last_stop_ts else None
+                    ),
                 }
                 for load in self._loads
             ],
@@ -360,11 +484,19 @@ class ActiveLoadController:
         if load.measured_power_w <= threshold:
             return
         alpha = 0.2
+        previous_estimate = load.estimated_power_w
         load.estimated_power_w = (
             load.measured_power_w
             if load.estimated_power_w is None
             else (alpha * load.measured_power_w + (1 - alpha) * load.estimated_power_w)
         )
+        if previous_estimate is None or abs(load.estimated_power_w - previous_estimate) >= 5.0:
+            _LOGGER.info(
+                "Active load learned power for %s: %.1fW (measured=%.1fW)",
+                load.config.switch_entity_id,
+                load.estimated_power_w,
+                load.measured_power_w,
+            )
 
     async def _apply_control(self) -> None:
         if self._interval.interval_end is None:
@@ -374,6 +506,8 @@ class ActiveLoadController:
             await self._async_end_interval()
             return
         self._refresh_all_states()
+        if self._calibration_in_progress:
+            return
 
         if not self.control_enabled:
             return
@@ -452,6 +586,12 @@ class ActiveLoadController:
         load.last_start_ts = now
         load.last_integration_context_id = context.id
         load.skip_reason = reason
+        _LOGGER.info(
+            "Active load %s turned on (reason=%s owns=%s)",
+            load.config.switch_entity_id,
+            reason,
+            load.owns_switch,
+        )
 
     async def _async_turn_off_load(
         self, load: ActiveLoadRuntime, reason: str, *, force: bool = False
@@ -472,6 +612,11 @@ class ActiveLoadController:
         load.startup_probing = False
         load.skip_reason = reason
         load.pending_stop_after_min_on = False
+        _LOGGER.info(
+            "Active load %s turned off (reason=%s)",
+            load.config.switch_entity_id,
+            reason,
+        )
 
     async def _async_maybe_stop_owned(self, load: ActiveLoadRuntime, reason: str) -> None:
         if not load.switch_is_on or not load.owns_switch:

@@ -120,7 +120,13 @@
       "active_load_measured_wh": {"name": "Active load measured energy (Wh)"},
       "active_load_remaining_wh": {"name": "Active load remaining target (Wh)"},
       "active_load_available_count": {"name": "Available active load count"},
-      "active_load_seconds_remaining": {"name": "Seconds remaining in interval"}
+      "active_load_seconds_remaining": {"name": "Seconds remaining in interval"},
+      "active_load_control_enabled": {"name": "Active load control enabled (beta diag)"},
+      "active_load_calibration_status": {"name": "Active load calibration status (beta diag)"},
+      "active_load_estimated_load_count": {"name": "Estimated active load count (beta diag)"},
+      "active_load_correction_wh": {"name": "Active load correction (Wh, beta diag)"},
+      "active_load_tracking_error_wh": {"name": "Active load tracking error (Wh, beta diag)"},
+      "active_load_unused_shared_wh": {"name": "Last unused shared energy (Wh, beta diag)"}
     }
   },
   "services": {

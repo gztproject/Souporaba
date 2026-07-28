@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
+from homeassistant.core import callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -53,6 +55,7 @@ class EnergySharingButton(ButtonEntity):
         self.entity_description = description
         self._entry = entry
         self._manager = manager
+        self._unsub_update: Callable[[], None] | None = None
         self._attr_unique_id = f"{entry.entry_id}_{description.key}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
@@ -61,6 +64,37 @@ class EnergySharingButton(ButtonEntity):
             model=MODEL,
         )
         self._attr_translation_key = description.translation_key
+
+    async def async_added_to_hass(self) -> None:
+        self._unsub_update = self._manager.add_update_listener(
+            self._handle_manager_update
+        )
+        self._update_from_manager()
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._unsub_update is not None:
+            self._unsub_update()
+            self._unsub_update = None
+
+    @callback
+    def _handle_manager_update(self) -> None:
+        self._update_from_manager()
+        self.async_write_ha_state()
+
+    @callback
+    def _update_from_manager(self) -> None:
+        controller = getattr(self._manager, "_active_load_controller", None)
+        if controller is None or not controller.has_loads:
+            self._attr_available = False
+            self._attr_extra_state_attributes = {}
+            return
+        self._attr_available = not controller.calibration_in_progress
+        snapshot = controller.get_snapshot()
+        self._attr_extra_state_attributes = {
+            "calibration_in_progress": snapshot.get("calibration_in_progress"),
+            "last_result": snapshot.get("calibration_last_result"),
+            "last_finished_at": snapshot.get("calibration_last_finished_at"),
+        }
 
     async def async_press(self) -> None:
         await self._manager.async_calibrate_active_loads()
