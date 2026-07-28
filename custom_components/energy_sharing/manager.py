@@ -248,6 +248,22 @@ class EnergySharingManager:
         """Notify sensor/button entities that active-load state changed."""
         self._notify_update()
 
+    def get_active_load_estimated_power_map(self) -> dict[str, float]:
+        """Return persisted learned power estimates keyed by switch entity id."""
+        return dict(self.data.active_load_estimated_power_w)
+
+    async def async_persist_active_load_estimated_power(
+        self, switch_entity_id: str, power_w: float
+    ) -> None:
+        """Persist a learned active-load power estimate."""
+        if power_w <= 0:
+            return
+        existing = self.data.active_load_estimated_power_w.get(switch_entity_id)
+        if existing is not None and abs(existing - power_w) < 1.0:
+            return
+        self.data.active_load_estimated_power_w[switch_entity_id] = power_w
+        await self.storage.async_save(self.data.to_dict())
+
     async def async_setup(self) -> None:
         stored = await self.storage.async_load()
         if stored is not None:

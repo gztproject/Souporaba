@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import timedelta
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from freezegun import freeze_time
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
@@ -28,6 +29,7 @@ class _FakeManager:
     def __init__(self, options: dict) -> None:
         self._options = options
         self.notify_calls = 0
+        self._stored_estimates: dict[str, float] = {}
 
     def get_option(self, key: str, default=None):
         return self._options.get(key, default)
@@ -35,12 +37,70 @@ class _FakeManager:
     def notify_entities_update(self) -> None:
         self.notify_calls += 1
 
+    def get_active_load_estimated_power_map(self) -> dict[str, float]:
+        return dict(self._stored_estimates)
+
+    async def async_persist_active_load_estimated_power(
+        self, switch_entity_id: str, power_w: float
+    ) -> None:
+        self._stored_estimates[switch_entity_id] = power_w
+
 
 def test_parse_power_watts_w_and_kw() -> None:
     assert parse_power_watts("100", "W") == 100.0
     assert parse_power_watts("1.5", "kW") == 1500.0
     assert parse_power_watts("bad", "W") is None
     assert parse_power_watts("-1", "W") is None
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_restores_estimated_power_from_storage(hass: HomeAssistant) -> None:
+    manager = _FakeManager({})
+    manager._stored_estimates = {"switch.boiler_a": 1800.0}
+    controller = ActiveLoadController(
+        hass,
+        manager,
+        [
+            ActiveLoadConfig(
+                switch_entity_id="switch.boiler_a",
+                power_sensor_entity_id="sensor.boiler_a_power",
+                priority=0,
+                enabled=True,
+            )
+        ],
+        interval_minutes=15,
+    )
+    assert controller._loads[0].estimated_power_w == 1800.0  # noqa: SLF001
+    await controller.async_unload()
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_learning_persists_estimated_power(hass: HomeAssistant) -> None:
+    manager = _FakeManager({})
+    controller = ActiveLoadController(
+        hass,
+        manager,
+        [
+            ActiveLoadConfig(
+                switch_entity_id="switch.boiler_a",
+                power_sensor_entity_id="sensor.boiler_a_power",
+                priority=0,
+                enabled=True,
+            )
+        ],
+        interval_minutes=15,
+    )
+    await controller.async_setup()
+    try:
+        load = controller._loads[0]  # noqa: SLF001
+        load.switch_is_on = True
+        load.last_start_ts = dt_util.now() - timedelta(seconds=60)
+        load.measured_power_w = 1500.0
+        controller._update_learning(load)  # noqa: SLF001
+        await hass.async_block_till_done()
+        assert manager._stored_estimates["switch.boiler_a"] == pytest.approx(1500.0)
+    finally:
+        await controller.async_unload()
 
 
 @freeze_time("2026-07-12 15:00:10+02:00")

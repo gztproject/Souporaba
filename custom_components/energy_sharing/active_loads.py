@@ -137,6 +137,7 @@ class ActiveLoadController:
         self._calibration_last_finished_at: datetime | None = None
         self._last_unused_shared_wh: float | None = None
         self._last_interval_base_target_wh: float | None = None
+        self._restore_estimated_power()
 
     @property
     def has_loads(self) -> bool:
@@ -157,6 +158,26 @@ class ActiveLoadController:
 
     def _opt(self, key: str, default: Any) -> Any:
         return self._manager.get_option(key, default)
+
+    def _restore_estimated_power(self) -> None:
+        get_estimates = getattr(self._manager, "get_active_load_estimated_power_map", None)
+        if not callable(get_estimates):
+            return
+        estimates = get_estimates()
+        for load in self._loads:
+            power = estimates.get(load.config.switch_entity_id)
+            if power is not None and power > 0:
+                load.estimated_power_w = power
+
+    def _schedule_persist_estimate(self, load: ActiveLoadRuntime) -> None:
+        if load.estimated_power_w is None:
+            return
+        persist = getattr(self._manager, "async_persist_active_load_estimated_power", None)
+        if not callable(persist):
+            return
+        self.hass.async_create_task(
+            persist(load.config.switch_entity_id, load.estimated_power_w)
+        )
 
     async def async_setup(self) -> None:
         self._subscribe_entities()
@@ -324,11 +345,23 @@ class ActiveLoadController:
                 self._notify_entity_update()
 
     def update_configuration(self, loads: list[ActiveLoadConfig], interval_minutes: int) -> None:
+        previous = {
+            load.config.switch_entity_id: load.estimated_power_w for load in self._loads
+        }
         self._loads = [
             ActiveLoadRuntime(config=load_cfg)
             for load_cfg in sorted(loads, key=lambda i: i.priority)
         ]
         self._interval_minutes = interval_minutes
+        for load in self._loads:
+            switch_entity_id = load.config.switch_entity_id
+            stored = self._manager.get_active_load_estimated_power_map().get(
+                switch_entity_id
+            )
+            if stored is not None and stored > 0:
+                load.estimated_power_w = stored
+            elif previous.get(switch_entity_id) is not None:
+                load.estimated_power_w = previous[switch_entity_id]
         for unsub in self._state_unsubs:
             unsub()
         self._state_unsubs.clear()
@@ -525,6 +558,11 @@ class ActiveLoadController:
                 load.estimated_power_w,
                 load.measured_power_w,
             )
+        if (
+            previous_estimate is None
+            or abs(load.estimated_power_w - previous_estimate) >= 1.0
+        ):
+            self._schedule_persist_estimate(load)
 
     async def _apply_control(self) -> None:
         if self._interval.interval_end is None:

@@ -274,6 +274,7 @@ class StorageData:
     reconciliation_mismatch_count: int = 0
     last_failure: FailureRecord | None = None
     last_source_reset: SourceResetRecord | None = None
+    active_load_estimated_power_w: dict[str, float] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-compatible dictionary."""
@@ -310,6 +311,7 @@ class StorageData:
                 if self.last_source_reset
                 else None
             ),
+            "active_load_estimated_power_w": dict(self.active_load_estimated_power_w),
         }
 
     @classmethod
@@ -382,7 +384,23 @@ class StorageData:
                 if isinstance(last_source_reset, dict)
                 else None
             ),
+            active_load_estimated_power_w=_active_load_estimated_power_from_dict(
+                data.get("active_load_estimated_power_w")
+            ),
         )
+
+
+def _active_load_estimated_power_from_dict(value: Any) -> dict[str, float]:
+    if not isinstance(value, dict):
+        return {}
+    estimates: dict[str, float] = {}
+    for entity_id, power in value.items():
+        if not isinstance(entity_id, str):
+            continue
+        power_w = _safe_float(power, -1.0)
+        if power_w > 0:
+            estimates[entity_id] = power_w
+    return estimates
 
 
 def migrate_storage(data: dict[str, Any], from_version: int) -> dict[str, Any]:
@@ -420,6 +438,9 @@ def migrate_storage(data: dict[str, Any], from_version: int) -> dict[str, Any]:
             last_interval["billable_energy_kwh"] = last_interval.pop(
                 "billable_grid_kwh"
             )
+
+    if from_version < 5:
+        migrated.setdefault("active_load_estimated_power_w", {})
 
     migrated["version"] = STORAGE_VERSION
     return migrated

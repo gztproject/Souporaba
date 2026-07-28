@@ -143,7 +143,7 @@ def test_migrate_storage_v3_billable_keys() -> None:
         "last_interval": {"billable_grid_kwh": 0.45},
     }
     migrated = migrate_storage(payload, 3)
-    assert migrated["version"] == 4
+    assert migrated["version"] == 5
     assert migrated["cumulative_billable_energy"] == pytest.approx(1.23)
     assert "cumulative_billable" not in migrated
     assert migrated["last_interval"]["billable_energy_kwh"] == pytest.approx(0.45)
@@ -169,3 +169,13 @@ def test_storage_from_dict_tolerates_malformed_nested_data() -> None:
     assert storage.cumulative_receiver_import == pytest.approx(10.5)
     assert storage.cumulative_billable_energy == pytest.approx(0.0)
     assert storage.processed_intervals == 7
+
+
+def test_migrate_storage_v4_adds_active_load_estimates() -> None:
+    payload = {
+        "version": 4,
+        "cumulative_receiver_import": 1.0,
+    }
+    migrated = migrate_storage(payload, 4)
+    assert migrated["version"] == 5
+    assert migrated["active_load_estimated_power_w"] == {}

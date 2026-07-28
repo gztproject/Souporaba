@@ -538,7 +538,7 @@ async def test_setup_recovers_from_invalid_stored_data(
     )
 
     await manager.async_setup()
-    assert manager.data.version == 4
+    assert manager.data.version == STORAGE_VERSION
 
 
 @freeze_time("2026-07-12 15:00:10+02:00")
