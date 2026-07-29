@@ -92,8 +92,11 @@ from .models import (
     IntervalResult,
     SourceResetRecord,
     StorageData,
+    append_ideal_share_history_sample,
+    calculate_ideal_share_excluding_active_loads_pct,
     calculate_interval_delta,
     calculate_settlement,
+    compute_ideal_share_window_average,
     evaluate_reconciliation,
 )
 from .models import (
@@ -693,6 +696,24 @@ class EnergySharingManager:
             self.interval_minutes,
         )
 
+        active_load_interval_kwh = 0.0
+        if self._active_load_controller is not None:
+            active_load_interval_kwh = (
+                self._active_load_controller.get_interval_measured_kwh(interval_id)
+            )
+        provider_export_kwh = settlement["provider_export_interval_kwh"]
+        ideal_share_excluding_active_loads_pct = (
+            calculate_ideal_share_excluding_active_loads_pct(
+                imported_kwh=deltas["receiver_import_interval_kwh"],
+                provider_export_kwh=(
+                    float(provider_export_kwh)
+                    if provider_export_kwh is not None
+                    else None
+                ),
+                active_load_kwh=active_load_interval_kwh,
+            )
+        )
+
         result = IntervalResult(
             interval_id=interval_id,
             interval_start=interval_start,
@@ -712,6 +733,8 @@ class EnergySharingManager:
             effective_allocation_pct=settlement["effective_allocation_pct"],
             required_share_pct=settlement["required_share_pct"],
             ideal_share_pct=settlement["ideal_share_pct"],
+            active_load_interval_kwh=active_load_interval_kwh,
+            ideal_share_excluding_active_loads_pct=ideal_share_excluding_active_loads_pct,
             allocation_utilization_pct=settlement["allocation_utilization_pct"],
             consumption_coverage_pct=settlement["consumption_coverage_pct"],
             allocation_difference_kwh=settlement["allocation_difference_kwh"],
@@ -737,6 +760,13 @@ class EnergySharingManager:
             self.data.cumulative_used += result.used_shared_kwh
             self.data.cumulative_unused += result.unused_shared_kwh
             self.data.cumulative_billable_energy += result.billable_energy_kwh
+            append_ideal_share_history_sample(
+                self.data.ideal_share_history,
+                interval_end=interval_end,
+                receiver_import_kwh=result.receiver_import_interval_kwh,
+                provider_export_kwh=result.provider_export_interval_kwh,
+                active_load_kwh=result.active_load_interval_kwh,
+            )
             self.data.processed_intervals += 1
             if missed > 0:
                 self.data.skipped_intervals += missed
@@ -1023,8 +1053,25 @@ class EnergySharingManager:
         self.data.skipped_intervals = 0
         self.data.reconciliation_mismatch_count = 0
         self.data.last_failure = None
+        self.data.ideal_share_history = []
         await self.storage.async_save(self.data.to_dict())
         self._notify_update()
+
+    def get_ideal_share_averages(self) -> dict[str, dict[str, float | int | None]]:
+        """Return rolling daily and weekly ideal-share averages."""
+        now = dt_util.now()
+        return {
+            "daily": compute_ideal_share_window_average(
+                self.data.ideal_share_history,
+                window_hours=24,
+                now=now,
+            ),
+            "weekly": compute_ideal_share_window_average(
+                self.data.ideal_share_history,
+                window_hours=24 * 7,
+                now=now,
+            ),
+        }
 
     def get_diagnostics_snapshot(self) -> dict[str, Any]:
         def _snap(state: Any) -> dict[str, Any] | None:
@@ -1099,4 +1146,5 @@ class EnergySharingManager:
                 if self._active_load_controller is not None
                 else None
             ),
+            "ideal_share_averages": self.get_ideal_share_averages(),
         }

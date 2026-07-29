@@ -370,6 +370,12 @@ class ActiveLoadController:
         self._state_unsubs.clear()
         self._subscribe_entities()
 
+    def get_interval_measured_kwh(self, interval_id: str) -> float:
+        """Return measured ACL energy for the settlement interval, if aligned."""
+        if self._interval.interval_id != interval_id:
+            return 0.0
+        return max(self._interval.measured_total_wh, 0.0) / 1000.0
+
     def notify_processed_interval(self, unused_shared_kwh: float) -> None:
         now = dt_util.now()
         # Ensure availability/power state is fresh, especially after startup/recovery,

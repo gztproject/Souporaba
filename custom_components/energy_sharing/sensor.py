@@ -157,6 +157,42 @@ def _interval_percent_sensors() -> tuple[EnergySharingSensorDescription, ...]:
             value_key="ideal_share_pct",
         ),
         EnergySharingSensorDescription(
+            key="ideal_share_excluding_active_loads_last_interval",
+            translation_key="ideal_share_excluding_active_loads_last_interval",
+            native_unit_of_measurement=PERCENTAGE,
+            state_class=SensorStateClass.MEASUREMENT,
+            icon="mdi:percent-outline",
+            value_key="ideal_share_excluding_active_loads_pct",
+        ),
+        EnergySharingSensorDescription(
+            key="ideal_share_daily_average",
+            translation_key="ideal_share_daily_average",
+            native_unit_of_measurement=PERCENTAGE,
+            state_class=SensorStateClass.MEASUREMENT,
+            icon="mdi:calendar-today",
+        ),
+        EnergySharingSensorDescription(
+            key="ideal_share_weekly_average",
+            translation_key="ideal_share_weekly_average",
+            native_unit_of_measurement=PERCENTAGE,
+            state_class=SensorStateClass.MEASUREMENT,
+            icon="mdi:calendar-week",
+        ),
+        EnergySharingSensorDescription(
+            key="ideal_share_excluding_active_loads_daily_average",
+            translation_key="ideal_share_excluding_active_loads_daily_average",
+            native_unit_of_measurement=PERCENTAGE,
+            state_class=SensorStateClass.MEASUREMENT,
+            icon="mdi:calendar-today",
+        ),
+        EnergySharingSensorDescription(
+            key="ideal_share_excluding_active_loads_weekly_average",
+            translation_key="ideal_share_excluding_active_loads_weekly_average",
+            native_unit_of_measurement=PERCENTAGE,
+            state_class=SensorStateClass.MEASUREMENT,
+            icon="mdi:calendar-week",
+        ),
+        EnergySharingSensorDescription(
             key="allocation_utilization_last_interval",
             translation_key="allocation_utilization_last_interval",
             native_unit_of_measurement=PERCENTAGE,
@@ -614,6 +650,33 @@ class EnergySharingSensor(SensorEntity):
             self._attr_available = True
             return
 
+        if description.key in {
+            "ideal_share_daily_average",
+            "ideal_share_weekly_average",
+            "ideal_share_excluding_active_loads_daily_average",
+            "ideal_share_excluding_active_loads_weekly_average",
+        }:
+            averages = self._manager.get_ideal_share_averages()
+            window = "daily" if "daily" in description.key else "weekly"
+            value_key = (
+                "ideal_share_excluding_active_loads_pct"
+                if "excluding_active_loads" in description.key
+                else "ideal_share_pct"
+            )
+            window_stats = averages[window]
+            sample_count = int(window_stats.get("sample_count") or 0)
+            self._attr_native_value = window_stats.get(value_key)
+            self._attr_available = sample_count > 0
+            self._attr_extra_state_attributes = {
+                "window_hours": 24 if window == "daily" else 24 * 7,
+                "sample_count": sample_count,
+                "ideal_share_pct": window_stats.get("ideal_share_pct"),
+                "ideal_share_excluding_active_loads_pct": window_stats.get(
+                    "ideal_share_excluding_active_loads_pct"
+                ),
+            }
+            return
+
         if description.key == "reconciliation_status":
             if last_interval is None:
                 self._attr_native_value = None
@@ -685,4 +748,6 @@ def _interval_attributes(interval: IntervalResult) -> dict[str, Any]:
     }
     if export_attr and interval.provider_export_interval_kwh is not None:
         attrs["source_type"] = export_attr
+    if interval.active_load_interval_kwh > 0:
+        attrs["active_load_interval_kwh"] = interval.active_load_interval_kwh
     return attrs

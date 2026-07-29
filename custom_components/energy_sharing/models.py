@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.util import dt as dt_util
@@ -127,6 +127,8 @@ class IntervalResult:
     effective_allocation_pct: float | None
     required_share_pct: float | None
     ideal_share_pct: float | None
+    active_load_interval_kwh: float
+    ideal_share_excluding_active_loads_pct: float | None
     allocation_utilization_pct: float | None
     consumption_coverage_pct: float | None
     allocation_difference_kwh: float | None
@@ -193,6 +195,14 @@ class IntervalResult:
             ideal_share_pct=(
                 float(data["ideal_share_pct"])
                 if data.get("ideal_share_pct") is not None
+                else None
+            ),
+            active_load_interval_kwh=_safe_float(
+                data.get("active_load_interval_kwh", 0.0), 0.0
+            ),
+            ideal_share_excluding_active_loads_pct=(
+                float(data["ideal_share_excluding_active_loads_pct"])
+                if data.get("ideal_share_excluding_active_loads_pct") is not None
                 else None
             ),
             allocation_utilization_pct=(
@@ -275,6 +285,7 @@ class StorageData:
     last_failure: FailureRecord | None = None
     last_source_reset: SourceResetRecord | None = None
     active_load_estimated_power_w: dict[str, float] = field(default_factory=dict)
+    ideal_share_history: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-compatible dictionary."""
@@ -312,6 +323,7 @@ class StorageData:
                 else None
             ),
             "active_load_estimated_power_w": dict(self.active_load_estimated_power_w),
+            "ideal_share_history": list(self.ideal_share_history),
         }
 
     @classmethod
@@ -387,7 +399,40 @@ class StorageData:
             active_load_estimated_power_w=_active_load_estimated_power_from_dict(
                 data.get("active_load_estimated_power_w")
             ),
+            ideal_share_history=_ideal_share_history_from_dict(
+                data.get("ideal_share_history")
+            ),
         )
+
+
+def _ideal_share_history_from_dict(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    history: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        interval_end = item.get("interval_end")
+        if not isinstance(interval_end, str):
+            continue
+        provider_export_kwh = item.get("provider_export_kwh")
+        history.append(
+            {
+                "interval_end": interval_end,
+                "receiver_import_kwh": _safe_float(
+                    item.get("receiver_import_kwh", 0.0), 0.0
+                ),
+                "provider_export_kwh": (
+                    _safe_float(provider_export_kwh, -1.0)
+                    if provider_export_kwh is not None
+                    else None
+                ),
+                "active_load_kwh": _safe_float(
+                    item.get("active_load_kwh", 0.0), 0.0
+                ),
+            }
+        )
+    return history
 
 
 def _active_load_estimated_power_from_dict(value: Any) -> dict[str, float]:
@@ -442,6 +487,9 @@ def migrate_storage(data: dict[str, Any], from_version: int) -> dict[str, Any]:
     if from_version < 5:
         migrated.setdefault("active_load_estimated_power_w", {})
 
+    if from_version < 6:
+        migrated.setdefault("ideal_share_history", [])
+
     migrated["version"] = STORAGE_VERSION
     return migrated
 
@@ -449,6 +497,96 @@ def migrate_storage(data: dict[str, Any], from_version: int) -> dict[str, Any]:
 def clamp(value: float, minimum: float, maximum: float) -> float:
     """Clamp a numeric value to the given range."""
     return max(minimum, min(value, maximum))
+
+
+def calculate_ideal_share_excluding_active_loads_pct(
+    *,
+    imported_kwh: float,
+    provider_export_kwh: float | None,
+    active_load_kwh: float,
+) -> float | None:
+    """Calculate ideal share from organic receiver import excluding ACL mop-up."""
+    if provider_export_kwh is None or provider_export_kwh <= 0:
+        return None
+    organic_import_kwh = max(imported_kwh - active_load_kwh, 0.0)
+    return clamp(100.0 * organic_import_kwh / provider_export_kwh, 0.0, 100.0)
+
+
+def append_ideal_share_history_sample(
+    history: list[dict[str, Any]],
+    *,
+    interval_end: datetime,
+    receiver_import_kwh: float,
+    provider_export_kwh: float | None,
+    active_load_kwh: float,
+    retention_days: int = 7,
+) -> None:
+    """Append one interval sample and prune samples older than retention."""
+    if provider_export_kwh is None or provider_export_kwh <= 0:
+        return
+    history.append(
+        {
+            "interval_end": interval_end.isoformat(),
+            "receiver_import_kwh": receiver_import_kwh,
+            "provider_export_kwh": provider_export_kwh,
+            "active_load_kwh": active_load_kwh,
+        }
+    )
+    cutoff = dt_util.as_utc(interval_end) - timedelta(days=retention_days)
+    history[:] = [
+        sample
+        for sample in history
+        if (
+            parsed := dt_util.parse_datetime(sample.get("interval_end", ""))
+        )
+        is not None
+        and dt_util.as_utc(parsed) >= cutoff
+    ]
+
+
+def compute_ideal_share_window_average(
+    history: list[dict[str, Any]],
+    *,
+    window_hours: int,
+    now: datetime | None = None,
+) -> dict[str, float | int | None]:
+    """Compute energy-weighted ideal share averages over a rolling window."""
+    current = dt_util.as_utc(now or dt_util.utcnow())
+    cutoff = current - timedelta(hours=window_hours)
+    total_import_kwh = 0.0
+    total_export_kwh = 0.0
+    total_active_load_kwh = 0.0
+    sample_count = 0
+
+    for sample in history:
+        interval_end = dt_util.parse_datetime(sample.get("interval_end", ""))
+        if interval_end is None or dt_util.as_utc(interval_end) < cutoff:
+            continue
+        provider_export_kwh = sample.get("provider_export_kwh")
+        if provider_export_kwh is None or provider_export_kwh <= 0:
+            continue
+        total_import_kwh += _safe_float(sample.get("receiver_import_kwh", 0.0), 0.0)
+        total_export_kwh += float(provider_export_kwh)
+        total_active_load_kwh += _safe_float(sample.get("active_load_kwh", 0.0), 0.0)
+        sample_count += 1
+
+    if sample_count == 0 or total_export_kwh <= 0:
+        return {
+            "ideal_share_pct": None,
+            "ideal_share_excluding_active_loads_pct": None,
+            "sample_count": 0,
+        }
+
+    organic_import_kwh = max(total_import_kwh - total_active_load_kwh, 0.0)
+    return {
+        "ideal_share_pct": clamp(
+            100.0 * total_import_kwh / total_export_kwh, 0.0, 100.0
+        ),
+        "ideal_share_excluding_active_loads_pct": clamp(
+            100.0 * organic_import_kwh / total_export_kwh, 0.0, 100.0
+        ),
+        "sample_count": sample_count,
+    }
 
 
 def resolve_operating_mode(

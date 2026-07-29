@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 
 from custom_components.energy_sharing.const import (
@@ -13,9 +15,12 @@ from custom_components.energy_sharing.const import (
 )
 from custom_components.energy_sharing.models import (
     StorageData,
+    append_ideal_share_history_sample,
+    calculate_ideal_share_excluding_active_loads_pct,
     calculate_interval_delta,
     calculate_settlement,
     clamp,
+    compute_ideal_share_window_average,
     evaluate_reconciliation,
     migrate_storage,
     resolve_operating_mode,
@@ -143,7 +148,7 @@ def test_migrate_storage_v3_billable_keys() -> None:
         "last_interval": {"billable_grid_kwh": 0.45},
     }
     migrated = migrate_storage(payload, 3)
-    assert migrated["version"] == 5
+    assert migrated["version"] == 6
     assert migrated["cumulative_billable_energy"] == pytest.approx(1.23)
     assert "cumulative_billable" not in migrated
     assert migrated["last_interval"]["billable_energy_kwh"] == pytest.approx(0.45)
@@ -177,5 +182,43 @@ def test_migrate_storage_v4_adds_active_load_estimates() -> None:
         "cumulative_receiver_import": 1.0,
     }
     migrated = migrate_storage(payload, 4)
-    assert migrated["version"] == 5
+    assert migrated["version"] == 6
     assert migrated["active_load_estimated_power_w"] == {}
+    assert migrated["ideal_share_history"] == []
+
+
+def test_ideal_share_excluding_active_loads() -> None:
+    result = calculate_ideal_share_excluding_active_loads_pct(
+        imported_kwh=0.171,
+        provider_export_kwh=2.16,
+        active_load_kwh=0.09,
+    )
+    assert result == pytest.approx(3.75, rel=1e-3)
+
+
+def test_ideal_share_history_window_average_is_energy_weighted() -> None:
+    history: list[dict[str, object]] = []
+    append_ideal_share_history_sample(
+        history,
+        interval_end=datetime(2026, 7, 29, 12, 0, tzinfo=UTC),
+        receiver_import_kwh=0.2,
+        provider_export_kwh=2.0,
+        active_load_kwh=0.1,
+    )
+    append_ideal_share_history_sample(
+        history,
+        interval_end=datetime(2026, 7, 29, 12, 15, tzinfo=UTC),
+        receiver_import_kwh=0.1,
+        provider_export_kwh=1.0,
+        active_load_kwh=0.0,
+    )
+    averages = compute_ideal_share_window_average(
+        history,
+        window_hours=24,
+        now=datetime(2026, 7, 29, 12, 30, tzinfo=UTC),
+    )
+    assert averages["sample_count"] == 2
+    assert averages["ideal_share_pct"] == pytest.approx(10.0)
+    assert averages["ideal_share_excluding_active_loads_pct"] == pytest.approx(
+        6.6666667
+    )
