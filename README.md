@@ -104,6 +104,12 @@ Brand images live in `custom_components/energy_sharing/brand/` (`icon.png`, `log
 
 ## Active load behavior
 
+- Each finished 15-minute settlement sets the **next** slot's ALC target.
+- The target is **predicted leftover**, not only measured `unused_shared`:
+  - house baseline import = `import − ALC energy` from the finished slot
+  - predicted leftover = `max(0, expected_shared − baseline)`
+  - so a successful soak (unused ≈ 0) still schedules the next slot instead of skipping it
+- Measured `unused_shared` from the finished slot is already gone to the supplier; ALC cannot reclaim it, only avoid repeating the miss.
 - Control is driven by measured power/energy, not by switch ON state alone.
 - When global active-load control is disabled, integration still monitors power and learns load behavior but performs no switch ON/OFF calls.
 - Learning includes loads turned ON manually or by other automations (not only integration-owned starts).
@@ -115,7 +121,7 @@ Brand images live in `custom_components/energy_sharing/brand/` (`icon.png`, `log
 Example with two boilers:
 
 - Boiler A ~2000 W, Boiler B ~1500 W
-- Previous-interval active-load target: 625 Wh
+- Previous-interval predicted ALC target: 625 Wh
 - Boiler A can receive up to ~500 Wh in 15 minutes
 - Boiler B receives remaining ~125 Wh (~5 minutes)
 - If Boiler A draws ~0 W because thermostat is satisfied, allocation is recalculated and shifted to Boiler B where possible.

@@ -746,7 +746,13 @@ class EnergySharingManager:
 
         await self._async_advance_snapshot(readings)
         if self._active_load_controller is not None:
-            self._active_load_controller.notify_processed_interval(result.unused_shared_kwh)
+            self._active_load_controller.notify_processed_interval(
+                result.unused_shared_kwh,
+                shared_energy_kwh=result.shared_energy_interval_kwh,
+                expected_shared_kwh=result.expected_shared_kwh,
+                receiver_import_kwh=result.receiver_import_interval_kwh,
+                active_load_kwh=result.active_load_interval_kwh,
+            )
 
         if accumulate:
             self.data.cumulative_receiver_import += result.receiver_import_interval_kwh

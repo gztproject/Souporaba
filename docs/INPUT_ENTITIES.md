@@ -123,6 +123,9 @@ Global control option:
 
 Notes:
 
+- Each finished settlement sets the **next** 15-minute ALC target from predicted leftover:
+  `max(0, expected_shared − max(0, import − ALC_energy))`.
+  Measured unused alone is not used as the sole budget, because a successful soak would otherwise zero the following slot.
 - Switch ON state does not imply consumption. Control and learning are based on measured power.
 - Learning uses integration-owned and manual/externally-turned-ON load periods.
 - If a switch is ON but measured power remains below threshold after startup grace, load is treated as idle for the interval.
