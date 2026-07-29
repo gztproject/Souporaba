@@ -707,6 +707,8 @@ class ActiveLoadController:
         self._interval.interval_target_wh = 0.0
         for load in self._loads:
             load.interval_energy_wh = 0.0
+            load.allocated_target_wh = 0.0
+            load.scheduled_runtime_s = 0.0
             load.idle_latched_until_interval_id = None
             load.manually_excluded_until_interval_id = None
             load.accepting_power = False
