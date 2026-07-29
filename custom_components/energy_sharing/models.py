@@ -286,6 +286,9 @@ class StorageData:
     last_source_reset: SourceResetRecord | None = None
     active_load_estimated_power_w: dict[str, float] = field(default_factory=dict)
     ideal_share_history: list[dict[str, Any]] = field(default_factory=list)
+    active_load_cumulative_mopped_up_wh: float = 0.0
+    active_load_cumulative_overshoot_wh: float = 0.0
+    active_load_cumulative_undershoot_wh: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-compatible dictionary."""
@@ -324,6 +327,15 @@ class StorageData:
             ),
             "active_load_estimated_power_w": dict(self.active_load_estimated_power_w),
             "ideal_share_history": list(self.ideal_share_history),
+            "active_load_cumulative_mopped_up_wh": (
+                self.active_load_cumulative_mopped_up_wh
+            ),
+            "active_load_cumulative_overshoot_wh": (
+                self.active_load_cumulative_overshoot_wh
+            ),
+            "active_load_cumulative_undershoot_wh": (
+                self.active_load_cumulative_undershoot_wh
+            ),
         }
 
     @classmethod
@@ -401,6 +413,15 @@ class StorageData:
             ),
             ideal_share_history=_ideal_share_history_from_dict(
                 data.get("ideal_share_history")
+            ),
+            active_load_cumulative_mopped_up_wh=_safe_float(
+                data.get("active_load_cumulative_mopped_up_wh", 0.0), 0.0
+            ),
+            active_load_cumulative_overshoot_wh=_safe_float(
+                data.get("active_load_cumulative_overshoot_wh", 0.0), 0.0
+            ),
+            active_load_cumulative_undershoot_wh=_safe_float(
+                data.get("active_load_cumulative_undershoot_wh", 0.0), 0.0
             ),
         )
 
@@ -489,6 +510,11 @@ def migrate_storage(data: dict[str, Any], from_version: int) -> dict[str, Any]:
 
     if from_version < 6:
         migrated.setdefault("ideal_share_history", [])
+
+    if from_version < 7:
+        migrated.setdefault("active_load_cumulative_mopped_up_wh", 0.0)
+        migrated.setdefault("active_load_cumulative_overshoot_wh", 0.0)
+        migrated.setdefault("active_load_cumulative_undershoot_wh", 0.0)
 
     migrated["version"] = STORAGE_VERSION
     return migrated

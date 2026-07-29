@@ -141,6 +141,7 @@ class ActiveLoadController:
         self._cumulative_overshoot_wh: float = 0.0
         self._cumulative_undershoot_wh: float = 0.0
         self._restore_estimated_power()
+        self._restore_cumulative_stats()
 
     @property
     def has_loads(self) -> bool:
@@ -171,6 +172,34 @@ class ActiveLoadController:
             power = estimates.get(load.config.switch_entity_id)
             if power is not None and power > 0:
                 load.estimated_power_w = power
+
+    def _restore_cumulative_stats(self) -> None:
+        get_stats = getattr(self._manager, "get_active_load_cumulative_stats", None)
+        if not callable(get_stats):
+            return
+        stats = get_stats()
+        self._cumulative_mopped_up_wh = max(float(stats.get("mopped_up_wh", 0.0)), 0.0)
+        self._cumulative_overshoot_wh = max(float(stats.get("overshoot_wh", 0.0)), 0.0)
+        self._cumulative_undershoot_wh = max(
+            float(stats.get("undershoot_wh", 0.0)), 0.0
+        )
+
+    def _persist_cumulative_stats(self) -> None:
+        update = getattr(self._manager, "update_active_load_cumulative_stats", None)
+        if not callable(update):
+            return
+        update(
+            mopped_up_wh=self._cumulative_mopped_up_wh,
+            overshoot_wh=self._cumulative_overshoot_wh,
+            undershoot_wh=self._cumulative_undershoot_wh,
+        )
+
+    def reset_cumulative_stats(self) -> None:
+        """Clear in-memory ACL cumulative counters."""
+        self._cumulative_mopped_up_wh = 0.0
+        self._cumulative_overshoot_wh = 0.0
+        self._cumulative_undershoot_wh = 0.0
+        self._persist_cumulative_stats()
 
     def _schedule_persist_estimate(self, load: ActiveLoadRuntime) -> None:
         if load.estimated_power_w is None:
@@ -404,6 +433,7 @@ class ActiveLoadController:
         elif error_wh > 0:
             # Budget was available but not fully consumed (undershoot).
             self._cumulative_undershoot_wh += error_wh
+        self._persist_cumulative_stats()
         gain = float(self._opt(CONF_ACTIVE_LOAD_CORRECTION_GAIN, DEFAULT_ACTIVE_LOAD_CORRECTION_GAIN))
         max_corr = float(self._opt(CONF_ACTIVE_LOAD_MAX_CORRECTION_WH, DEFAULT_ACTIVE_LOAD_MAX_CORRECTION_WH))
         correction_wh = max(-max_corr, min(max_corr, gain * error_wh))

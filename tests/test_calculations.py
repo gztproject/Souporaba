@@ -149,7 +149,7 @@ def test_migrate_storage_v3_billable_keys() -> None:
         "last_interval": {"billable_grid_kwh": 0.45},
     }
     migrated = migrate_storage(payload, 3)
-    assert migrated["version"] == 6
+    assert migrated["version"] == 7
     assert migrated["cumulative_billable_energy"] == pytest.approx(1.23)
     assert "cumulative_billable" not in migrated
     assert migrated["last_interval"]["billable_energy_kwh"] == pytest.approx(0.45)
@@ -183,9 +183,24 @@ def test_migrate_storage_v4_adds_active_load_estimates() -> None:
         "cumulative_receiver_import": 1.0,
     }
     migrated = migrate_storage(payload, 4)
-    assert migrated["version"] == 6
+    assert migrated["version"] == 7
     assert migrated["active_load_estimated_power_w"] == {}
     assert migrated["ideal_share_history"] == []
+    assert migrated["active_load_cumulative_mopped_up_wh"] == 0.0
+    assert migrated["active_load_cumulative_overshoot_wh"] == 0.0
+    assert migrated["active_load_cumulative_undershoot_wh"] == 0.0
+
+
+def test_migrate_storage_v6_adds_active_load_cumulative_stats() -> None:
+    payload = {
+        "version": 6,
+        "ideal_share_history": [],
+    }
+    migrated = migrate_storage(payload, 6)
+    assert migrated["version"] == 7
+    assert migrated["active_load_cumulative_mopped_up_wh"] == 0.0
+    assert migrated["active_load_cumulative_overshoot_wh"] == 0.0
+    assert migrated["active_load_cumulative_undershoot_wh"] == 0.0
 
 
 def test_ideal_share_excluding_active_loads() -> None:

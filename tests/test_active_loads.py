@@ -30,6 +30,11 @@ class _FakeManager:
         self._options = options
         self.notify_calls = 0
         self._stored_estimates: dict[str, float] = {}
+        self._stored_cumulative: dict[str, float] = {
+            "mopped_up_wh": 0.0,
+            "overshoot_wh": 0.0,
+            "undershoot_wh": 0.0,
+        }
 
     def get_option(self, key: str, default=None):
         return self._options.get(key, default)
@@ -44,6 +49,22 @@ class _FakeManager:
         self, switch_entity_id: str, power_w: float
     ) -> None:
         self._stored_estimates[switch_entity_id] = power_w
+
+    def get_active_load_cumulative_stats(self) -> dict[str, float]:
+        return dict(self._stored_cumulative)
+
+    def update_active_load_cumulative_stats(
+        self,
+        *,
+        mopped_up_wh: float,
+        overshoot_wh: float,
+        undershoot_wh: float,
+    ) -> None:
+        self._stored_cumulative = {
+            "mopped_up_wh": mopped_up_wh,
+            "overshoot_wh": overshoot_wh,
+            "undershoot_wh": undershoot_wh,
+        }
 
 
 def test_parse_power_watts_w_and_kw() -> None:
@@ -71,6 +92,41 @@ async def test_restores_estimated_power_from_storage(hass: HomeAssistant) -> Non
         interval_minutes=15,
     )
     assert controller._loads[0].estimated_power_w == 1800.0  # noqa: SLF001
+    await controller.async_unload()
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_restores_and_persists_cumulative_stats(hass: HomeAssistant) -> None:
+    manager = _FakeManager({})
+    manager._stored_cumulative = {
+        "mopped_up_wh": 120.0,
+        "overshoot_wh": 8.0,
+        "undershoot_wh": 3.0,
+    }
+    controller = ActiveLoadController(
+        hass,
+        manager,
+        [
+            ActiveLoadConfig(
+                switch_entity_id="switch.boiler_a",
+                power_sensor_entity_id="sensor.boiler_a_power",
+                priority=0,
+                enabled=True,
+            )
+        ],
+        interval_minutes=15,
+    )
+    snapshot = controller.get_snapshot()
+    assert snapshot["cumulative_mopped_up_wh"] == pytest.approx(120.0)
+    assert snapshot["cumulative_overshoot_wh"] == pytest.approx(8.0)
+    assert snapshot["cumulative_undershoot_wh"] == pytest.approx(3.0)
+
+    controller._interval.measured_total_wh = 10.0  # noqa: SLF001
+    controller._interval.interval_target_wh = 7.0  # noqa: SLF001
+    controller._interval.interval_id = "old-interval"  # noqa: SLF001
+    controller.notify_processed_interval(0.02)
+    assert manager._stored_cumulative["mopped_up_wh"] == pytest.approx(130.0)
+    assert manager._stored_cumulative["overshoot_wh"] == pytest.approx(11.0)
     await controller.async_unload()
 
 

@@ -267,6 +267,26 @@ class EnergySharingManager:
         self.data.active_load_estimated_power_w[switch_entity_id] = power_w
         await self.storage.async_save(self.data.to_dict())
 
+    def get_active_load_cumulative_stats(self) -> dict[str, float]:
+        """Return persisted ACL cumulative mop-up / overshoot / undershoot totals."""
+        return {
+            "mopped_up_wh": self.data.active_load_cumulative_mopped_up_wh,
+            "overshoot_wh": self.data.active_load_cumulative_overshoot_wh,
+            "undershoot_wh": self.data.active_load_cumulative_undershoot_wh,
+        }
+
+    def update_active_load_cumulative_stats(
+        self,
+        *,
+        mopped_up_wh: float,
+        overshoot_wh: float,
+        undershoot_wh: float,
+    ) -> None:
+        """Update persisted ACL cumulative counters (saved with next storage write)."""
+        self.data.active_load_cumulative_mopped_up_wh = max(mopped_up_wh, 0.0)
+        self.data.active_load_cumulative_overshoot_wh = max(overshoot_wh, 0.0)
+        self.data.active_load_cumulative_undershoot_wh = max(undershoot_wh, 0.0)
+
     async def async_setup(self) -> None:
         stored = await self.storage.async_load()
         if stored is not None:
@@ -1054,6 +1074,11 @@ class EnergySharingManager:
         self.data.reconciliation_mismatch_count = 0
         self.data.last_failure = None
         self.data.ideal_share_history = []
+        self.data.active_load_cumulative_mopped_up_wh = 0.0
+        self.data.active_load_cumulative_overshoot_wh = 0.0
+        self.data.active_load_cumulative_undershoot_wh = 0.0
+        if self._active_load_controller is not None:
+            self._active_load_controller.reset_cumulative_stats()
         await self.storage.async_save(self.data.to_dict())
         self._notify_update()
 
