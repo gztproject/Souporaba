@@ -506,10 +506,16 @@ def calculate_ideal_share_excluding_active_loads_pct(
     active_load_kwh: float,
 ) -> float | None:
     """Calculate ideal share from organic receiver import excluding ACL mop-up."""
-    if provider_export_kwh is None or provider_export_kwh <= 0:
+    if not is_ideal_share_stats_eligible(provider_export_kwh):
         return None
+    assert provider_export_kwh is not None
     organic_import_kwh = max(imported_kwh - active_load_kwh, 0.0)
     return clamp(100.0 * organic_import_kwh / provider_export_kwh, 0.0, 100.0)
+
+
+def is_ideal_share_stats_eligible(provider_export_kwh: float | None) -> bool:
+    """Return True when an interval has measurable provider export (non-dark)."""
+    return provider_export_kwh is not None and provider_export_kwh > 0
 
 
 def append_ideal_share_history_sample(
@@ -522,8 +528,6 @@ def append_ideal_share_history_sample(
     retention_days: int = 7,
 ) -> None:
     """Append one interval sample and prune samples older than retention."""
-    if provider_export_kwh is None or provider_export_kwh <= 0:
-        return
     history.append(
         {
             "interval_end": interval_end.isoformat(),
@@ -557,16 +561,24 @@ def compute_ideal_share_window_average(
     total_export_kwh = 0.0
     total_active_load_kwh = 0.0
     sample_count = 0
+    excluded_dark_sample_count = 0
 
     for sample in history:
         interval_end = dt_util.parse_datetime(sample.get("interval_end", ""))
         if interval_end is None or dt_util.as_utc(interval_end) < cutoff:
             continue
         provider_export_kwh = sample.get("provider_export_kwh")
-        if provider_export_kwh is None or provider_export_kwh <= 0:
+        export_kwh = (
+            _safe_float(provider_export_kwh, -1.0)
+            if provider_export_kwh is not None
+            else None
+        )
+        if not is_ideal_share_stats_eligible(export_kwh):
+            excluded_dark_sample_count += 1
             continue
+        assert export_kwh is not None
         total_import_kwh += _safe_float(sample.get("receiver_import_kwh", 0.0), 0.0)
-        total_export_kwh += float(provider_export_kwh)
+        total_export_kwh += export_kwh
         total_active_load_kwh += _safe_float(sample.get("active_load_kwh", 0.0), 0.0)
         sample_count += 1
 
@@ -575,6 +587,7 @@ def compute_ideal_share_window_average(
             "ideal_share_pct": None,
             "ideal_share_excluding_active_loads_pct": None,
             "sample_count": 0,
+            "excluded_dark_sample_count": excluded_dark_sample_count,
         }
 
     organic_import_kwh = max(total_import_kwh - total_active_load_kwh, 0.0)
@@ -586,6 +599,7 @@ def compute_ideal_share_window_average(
             100.0 * organic_import_kwh / total_export_kwh, 0.0, 100.0
         ),
         "sample_count": sample_count,
+        "excluded_dark_sample_count": excluded_dark_sample_count,
     }
 
 

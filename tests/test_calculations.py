@@ -22,6 +22,7 @@ from custom_components.energy_sharing.models import (
     clamp,
     compute_ideal_share_window_average,
     evaluate_reconciliation,
+    is_ideal_share_stats_eligible,
     migrate_storage,
     resolve_operating_mode,
 )
@@ -222,3 +223,42 @@ def test_ideal_share_history_window_average_is_energy_weighted() -> None:
     assert averages["ideal_share_excluding_active_loads_pct"] == pytest.approx(
         6.6666667
     )
+
+
+def test_ideal_share_window_average_excludes_dark_periods() -> None:
+    history: list[dict[str, object]] = []
+    append_ideal_share_history_sample(
+        history,
+        interval_end=datetime(2026, 7, 29, 12, 0, tzinfo=UTC),
+        receiver_import_kwh=0.2,
+        provider_export_kwh=2.0,
+        active_load_kwh=0.0,
+    )
+    append_ideal_share_history_sample(
+        history,
+        interval_end=datetime(2026, 7, 29, 12, 15, tzinfo=UTC),
+        receiver_import_kwh=0.05,
+        provider_export_kwh=0.0,
+        active_load_kwh=0.0,
+    )
+    append_ideal_share_history_sample(
+        history,
+        interval_end=datetime(2026, 7, 29, 12, 30, tzinfo=UTC),
+        receiver_import_kwh=0.1,
+        provider_export_kwh=1.0,
+        active_load_kwh=0.0,
+    )
+    averages = compute_ideal_share_window_average(
+        history,
+        window_hours=24,
+        now=datetime(2026, 7, 29, 12, 45, tzinfo=UTC),
+    )
+    assert averages["sample_count"] == 2
+    assert averages["excluded_dark_sample_count"] == 1
+    assert averages["ideal_share_pct"] == pytest.approx(10.0)
+
+
+def test_is_ideal_share_stats_eligible() -> None:
+    assert is_ideal_share_stats_eligible(0.1) is True
+    assert is_ideal_share_stats_eligible(0.0) is False
+    assert is_ideal_share_stats_eligible(None) is False

@@ -670,6 +670,9 @@ class EnergySharingSensor(SensorEntity):
             self._attr_extra_state_attributes = {
                 "window_hours": 24 if window == "daily" else 24 * 7,
                 "sample_count": sample_count,
+                "excluded_dark_sample_count": int(
+                    window_stats.get("excluded_dark_sample_count") or 0
+                ),
                 "ideal_share_pct": window_stats.get("ideal_share_pct"),
                 "ideal_share_excluding_active_loads_pct": window_stats.get(
                     "ideal_share_excluding_active_loads_pct"
