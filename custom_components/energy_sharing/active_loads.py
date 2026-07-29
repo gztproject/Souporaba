@@ -137,6 +137,9 @@ class ActiveLoadController:
         self._calibration_last_finished_at: datetime | None = None
         self._last_unused_shared_wh: float | None = None
         self._last_interval_base_target_wh: float | None = None
+        self._cumulative_mopped_up_wh: float = 0.0
+        self._cumulative_overshoot_wh: float = 0.0
+        self._cumulative_undershoot_wh: float = 0.0
         self._restore_estimated_power()
 
     @property
@@ -383,6 +386,15 @@ class ActiveLoadController:
         self._last_unused_shared_wh = base_target_wh
         self._last_interval_base_target_wh = base_target_wh
         error_wh = self._interval.previous_target_wh - self._interval.previous_actual_wh
+
+        # Accumulate mopped-up energy: what the loads actually consumed this interval.
+        self._cumulative_mopped_up_wh += self._interval.previous_actual_wh
+        if error_wh < 0:
+            # Loads consumed more than targeted (overshoot).
+            self._cumulative_overshoot_wh += -error_wh
+        elif error_wh > 0:
+            # Budget was available but not fully consumed (undershoot).
+            self._cumulative_undershoot_wh += error_wh
         gain = float(self._opt(CONF_ACTIVE_LOAD_CORRECTION_GAIN, DEFAULT_ACTIVE_LOAD_CORRECTION_GAIN))
         max_corr = float(self._opt(CONF_ACTIVE_LOAD_MAX_CORRECTION_WH, DEFAULT_ACTIVE_LOAD_MAX_CORRECTION_WH))
         correction_wh = max(-max_corr, min(max_corr, gain * error_wh))
@@ -444,6 +456,9 @@ class ActiveLoadController:
             "interval_id": self._interval.interval_id,
             "last_unused_shared_wh": self._last_unused_shared_wh,
             "last_interval_base_target_wh": self._last_interval_base_target_wh,
+            "cumulative_mopped_up_wh": self._cumulative_mopped_up_wh,
+            "cumulative_overshoot_wh": self._cumulative_overshoot_wh,
+            "cumulative_undershoot_wh": self._cumulative_undershoot_wh,
             "loads": [
                 {
                     "switch_entity_id": load.config.switch_entity_id,
@@ -605,11 +620,15 @@ class ActiveLoadController:
         for load in self._loads:
             if not self._is_load_available(load):
                 await self._async_maybe_stop_owned(load, "not_available")
+                if not load.switch_is_on:
+                    load.skip_reason = "not_available"
                 continue
             if load.allocated_target_wh > 0 and not load.switch_is_on:
                 await self._async_turn_on_load(load, reason="scheduled")
             elif load.allocated_target_wh <= 0:
                 await self._async_maybe_stop_owned(load, "no_allocation")
+                if not load.switch_is_on:
+                    load.skip_reason = "no_allocation"
 
     def _allocate_targets(self, remaining_wh: float) -> None:
         for load in self._loads:

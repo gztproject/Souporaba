@@ -419,6 +419,24 @@ STATUS_SENSORS: tuple[EnergySharingSensorDescription, ...] = (
         icon="mdi:solar-power-variant-outline",
         status=True,
     ),
+    EnergySharingSensorDescription(
+        key="active_load_cumulative_mopped_up_wh",
+        translation_key="active_load_cumulative_mopped_up_wh",
+        icon="mdi:solar-power",
+        status=True,
+    ),
+    EnergySharingSensorDescription(
+        key="active_load_cumulative_overshoot_wh",
+        translation_key="active_load_cumulative_overshoot_wh",
+        icon="mdi:arrow-up-bold",
+        status=True,
+    ),
+    EnergySharingSensorDescription(
+        key="active_load_cumulative_undershoot_wh",
+        translation_key="active_load_cumulative_undershoot_wh",
+        icon="mdi:arrow-down-bold",
+        status=True,
+    ),
 )
 
 
@@ -573,6 +591,9 @@ class EnergySharingSensor(SensorEntity):
                 "active_load_correction_wh": "applied_correction_wh",
                 "active_load_tracking_error_wh": "tracking_error_wh",
                 "active_load_unused_shared_wh": "last_unused_shared_wh",
+                "active_load_cumulative_mopped_up_wh": "cumulative_mopped_up_wh",
+                "active_load_cumulative_overshoot_wh": "cumulative_overshoot_wh",
+                "active_load_cumulative_undershoot_wh": "cumulative_undershoot_wh",
             }
             key = value_map.get(description.key)
             if key is None:
