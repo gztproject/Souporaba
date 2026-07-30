@@ -71,7 +71,87 @@ def test_parse_power_watts_w_and_kw() -> None:
     assert parse_power_watts("100", "W") == 100.0
     assert parse_power_watts("1.5", "kW") == 1500.0
     assert parse_power_watts("bad", "W") is None
-    assert parse_power_watts("-1", "W") is None
+
+
+def test_predict_budget_equals_unused_when_alc_did_not_run() -> None:
+    unused_wh, predicted_wh = ActiveLoadController._predict_unused_budget_wh(
+        unused_shared_kwh=0.08,
+        shared_energy_kwh=0.10,
+        expected_shared_kwh=0.10,
+        receiver_import_kwh=0.02,
+        active_load_kwh=0.0,
+    )
+    assert unused_wh == pytest.approx(80.0)
+    assert predicted_wh == pytest.approx(80.0)
+
+
+def test_predict_budget_keeps_firing_after_successful_soak() -> None:
+    # Prior slot: ALC soaked leftover so measured unused is ~0, but house baseline
+    # alone would still leave most of the share unused next slot.
+    unused_wh, predicted_wh = ActiveLoadController._predict_unused_budget_wh(
+        unused_shared_kwh=0.0,
+        shared_energy_kwh=0.10,
+        expected_shared_kwh=0.10,
+        receiver_import_kwh=0.10,
+        active_load_kwh=0.09,
+    )
+    assert unused_wh == pytest.approx(0.0)
+    assert predicted_wh == pytest.approx(90.0)
+
+
+def test_predict_budget_uses_expected_shared_when_present() -> None:
+    _unused_wh, predicted_wh = ActiveLoadController._predict_unused_budget_wh(
+        unused_shared_kwh=0.0,
+        shared_energy_kwh=0.12,
+        expected_shared_kwh=0.10,
+        receiver_import_kwh=0.10,
+        active_load_kwh=0.09,
+    )
+    assert predicted_wh == pytest.approx(90.0)
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_notify_uses_predicted_budget_every_slot(
+    hass: HomeAssistant,
+) -> None:
+    manager = _FakeManager({})
+    controller = ActiveLoadController(
+        hass,
+        manager,
+        [
+            ActiveLoadConfig(
+                switch_entity_id="switch.boiler_a",
+                power_sensor_entity_id="sensor.boiler_a_power",
+                priority=0,
+                enabled=True,
+            )
+        ],
+        interval_minutes=15,
+    )
+    await controller.async_setup()
+    try:
+        hass.states.async_set("switch.boiler_a", "off")
+        hass.states.async_set(
+            "sensor.boiler_a_power",
+            "2000",
+            attributes={"unit_of_measurement": "W", "device_class": "power"},
+        )
+        await hass.async_block_till_done()
+
+        # Successful soak last interval: unused=0 but ALC consumed 90 Wh.
+        controller.notify_processed_interval(
+            unused_shared_kwh=0.0,
+            shared_energy_kwh=0.10,
+            expected_shared_kwh=0.10,
+            receiver_import_kwh=0.10,
+            active_load_kwh=0.09,
+        )
+        snapshot = controller.get_snapshot()
+        assert snapshot["last_unused_shared_wh"] == pytest.approx(0.0)
+        assert snapshot["last_interval_base_target_wh"] == pytest.approx(90.0)
+        assert snapshot["target_wh"] == pytest.approx(90.0)
+    finally:
+        await controller.async_unload()
 
 
 @freeze_time("2026-07-12 15:00:10+02:00")

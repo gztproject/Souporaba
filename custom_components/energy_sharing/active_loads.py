@@ -405,7 +405,57 @@ class ActiveLoadController:
             return 0.0
         return max(self._interval.measured_total_wh, 0.0) / 1000.0
 
-    def notify_processed_interval(self, unused_shared_kwh: float) -> None:
+    @staticmethod
+    def _predict_unused_budget_wh(
+        *,
+        unused_shared_kwh: float,
+        shared_energy_kwh: float | None,
+        expected_shared_kwh: float | None,
+        receiver_import_kwh: float | None,
+        active_load_kwh: float | None,
+    ) -> tuple[float, float]:
+        """Predict next-interval ALC budget from the interval that just finished.
+
+        Last interval's unused energy is already gone (credited to the supplier).
+        Using only that value creates an every-other-slot dead zone: a successful
+        ALC soak drives unused to ~0, so the following slot gets target 0 and its
+        surplus is lost forever.
+
+        Instead, remove ALC's own consumption from import to recover the house
+        baseline, then estimate how much shared energy would go unused if ALC
+        stayed off under the same conditions:
+
+            predicted = max(0, potential_shared - max(0, import - alc))
+
+        When ALC did not run, this equals measured unused. When ALC soaked the
+        leftover, it stays near the soaked amount so the next slot still fires.
+        """
+        unused_wh = max(unused_shared_kwh * 1000.0, 0.0)
+        if (
+            receiver_import_kwh is None
+            or (shared_energy_kwh is None and expected_shared_kwh is None)
+        ):
+            return unused_wh, unused_wh
+
+        potential_kwh = (
+            expected_shared_kwh
+            if expected_shared_kwh is not None
+            else float(shared_energy_kwh or 0.0)
+        )
+        alc_kwh = max(float(active_load_kwh or 0.0), 0.0)
+        baseline_import_kwh = max(float(receiver_import_kwh) - alc_kwh, 0.0)
+        predicted_wh = max(potential_kwh - baseline_import_kwh, 0.0) * 1000.0
+        return unused_wh, predicted_wh
+
+    def notify_processed_interval(
+        self,
+        unused_shared_kwh: float,
+        *,
+        shared_energy_kwh: float | None = None,
+        expected_shared_kwh: float | None = None,
+        receiver_import_kwh: float | None = None,
+        active_load_kwh: float | None = None,
+    ) -> None:
         now = dt_util.now()
         # Ensure availability/power state is fresh, especially after startup/recovery,
         # before estimating this interval's capacity.
@@ -420,8 +470,14 @@ class ActiveLoadController:
         if self._interval.interval_id != interval_id:
             self._roll_interval(interval_id, interval_end)
 
-        base_target_wh = max(unused_shared_kwh * 1000.0, 0.0)
-        self._last_unused_shared_wh = base_target_wh
+        unused_wh, base_target_wh = self._predict_unused_budget_wh(
+            unused_shared_kwh=unused_shared_kwh,
+            shared_energy_kwh=shared_energy_kwh,
+            expected_shared_kwh=expected_shared_kwh,
+            receiver_import_kwh=receiver_import_kwh,
+            active_load_kwh=active_load_kwh,
+        )
+        self._last_unused_shared_wh = unused_wh
         self._last_interval_base_target_wh = base_target_wh
         error_wh = self._interval.previous_target_wh - self._interval.previous_actual_wh
 
@@ -444,9 +500,10 @@ class ActiveLoadController:
         self._interval.interval_target_wh = max(0.0, min(base_target_wh + correction_wh, capacity_wh))
 
         _LOGGER.info(
-            "Active load interval %s: unused=%.3fWh corr=%.3fWh "
+            "Active load interval %s: unused=%.3fWh predicted=%.3fWh corr=%.3fWh "
             "cap=%.3fWh target=%.3fWh available_loads=%d estimated_loads=%d",
             interval_id,
+            unused_wh,
             base_target_wh,
             correction_wh,
             capacity_wh,
