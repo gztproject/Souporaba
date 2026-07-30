@@ -31,6 +31,9 @@ from .manager import EnergySharingManager
 from .models import IntervalResult
 
 PARALLEL_UPDATES = 0
+KWH_DISPLAY_PRECISION = 3
+PERCENT_DISPLAY_PRECISION = 2
+WH_TO_KWH = 1000.0
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -391,18 +394,21 @@ STATUS_SENSORS: tuple[EnergySharingSensorDescription, ...] = (
     EnergySharingSensorDescription(
         key="active_load_target_wh",
         translation_key="active_load_target_wh",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         icon="mdi:target",
         status=True,
     ),
     EnergySharingSensorDescription(
         key="active_load_measured_wh",
         translation_key="active_load_measured_wh",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         icon="mdi:lightning-bolt",
         status=True,
     ),
     EnergySharingSensorDescription(
         key="active_load_remaining_wh",
         translation_key="active_load_remaining_wh",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         icon="mdi:chart-timeline-variant",
         status=True,
     ),
@@ -418,7 +424,15 @@ STATUS_SENSORS: tuple[EnergySharingSensorDescription, ...] = (
         icon="mdi:timer-outline",
         status=True,
     ),
-    # Beta diagnostics — remove or hide before stable release.
+    # Permanent active-load totals.
+    EnergySharingSensorDescription(
+        key="active_load_cumulative_mopped_up_wh",
+        translation_key="active_load_cumulative_mopped_up_wh",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        icon="mdi:solar-power",
+        status=True,
+    ),
+    # Advanced diagnostics (kept permanently, but may be hidden by default in UI).
     EnergySharingSensorDescription(
         key="active_load_control_enabled",
         translation_key="active_load_control_enabled",
@@ -440,36 +454,35 @@ STATUS_SENSORS: tuple[EnergySharingSensorDescription, ...] = (
     EnergySharingSensorDescription(
         key="active_load_correction_wh",
         translation_key="active_load_correction_wh",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         icon="mdi:delta",
         status=True,
     ),
     EnergySharingSensorDescription(
         key="active_load_tracking_error_wh",
         translation_key="active_load_tracking_error_wh",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         icon="mdi:chart-bell-curve",
         status=True,
     ),
     EnergySharingSensorDescription(
         key="active_load_unused_shared_wh",
         translation_key="active_load_unused_shared_wh",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         icon="mdi:solar-power-variant-outline",
-        status=True,
-    ),
-    EnergySharingSensorDescription(
-        key="active_load_cumulative_mopped_up_wh",
-        translation_key="active_load_cumulative_mopped_up_wh",
-        icon="mdi:solar-power",
         status=True,
     ),
     EnergySharingSensorDescription(
         key="active_load_cumulative_overshoot_wh",
         translation_key="active_load_cumulative_overshoot_wh",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         icon="mdi:arrow-up-bold",
         status=True,
     ),
     EnergySharingSensorDescription(
         key="active_load_cumulative_undershoot_wh",
         translation_key="active_load_cumulative_undershoot_wh",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         icon="mdi:arrow-down-bold",
         status=True,
     ),
@@ -537,6 +550,10 @@ class EnergySharingSensor(SensorEntity):
             model=MODEL,
         )
         self._attr_translation_key = description.translation_key
+        if description.native_unit_of_measurement == UnitOfEnergy.KILO_WATT_HOUR:
+            self._attr_suggested_display_precision = KWH_DISPLAY_PRECISION
+        elif description.native_unit_of_measurement == PERCENTAGE:
+            self._attr_suggested_display_precision = PERCENT_DISPLAY_PRECISION
 
     async def async_added_to_hass(self) -> None:
         self._unsub_update = self._manager.add_update_listener(
@@ -634,7 +651,20 @@ class EnergySharingSensor(SensorEntity):
             key = value_map.get(description.key)
             if key is None:
                 return
-            self._attr_native_value = active.get(key)
+            value = active.get(key)
+            if description.key in {
+                "active_load_target_wh",
+                "active_load_measured_wh",
+                "active_load_remaining_wh",
+                "active_load_correction_wh",
+                "active_load_tracking_error_wh",
+                "active_load_unused_shared_wh",
+                "active_load_cumulative_mopped_up_wh",
+                "active_load_cumulative_overshoot_wh",
+                "active_load_cumulative_undershoot_wh",
+            } and isinstance(value, int | float):
+                value = value / WH_TO_KWH
+            self._attr_native_value = value
             self._attr_available = active != {}
             if active:
                 self._attr_extra_state_attributes = {

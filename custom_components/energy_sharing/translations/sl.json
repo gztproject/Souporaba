@@ -121,20 +121,20 @@
       "source_reset_count": {"name": "Število ponastavitev števca"},
       "reconciliation_mismatch_count": {"name": "Število neusklajenih dodelitev"}
       ,
-      "active_load_target_wh": {"name": "Cilj aktivnih bremen (Wh)"},
-      "active_load_measured_wh": {"name": "Izmerjena energija aktivnih bremen (Wh)"},
-      "active_load_remaining_wh": {"name": "Preostali cilj aktivnih bremen (Wh)"},
+      "active_load_target_wh": {"name": "Cilj aktivnih bremen (kWh)"},
+      "active_load_measured_wh": {"name": "Izmerjena energija aktivnih bremen (kWh)"},
+      "active_load_remaining_wh": {"name": "Preostali cilj aktivnih bremen (kWh)"},
       "active_load_available_count": {"name": "Število razpoložljivih aktivnih bremen"},
       "active_load_seconds_remaining": {"name": "Preostale sekunde intervala"},
-      "active_load_control_enabled": {"name": "Aktivno krmiljenje bremen (beta diag)"},
-      "active_load_calibration_status": {"name": "Stanje kalibracije bremen (beta diag)"},
-      "active_load_estimated_load_count": {"name": "Število ocenjenih bremen (beta diag)"},
-      "active_load_correction_wh": {"name": "Korekcija aktivnih bremen (Wh, beta diag)"},
-      "active_load_tracking_error_wh": {"name": "Napaka sledenja bremen (Wh, beta diag)"},
-      "active_load_unused_shared_wh": {"name": "Zadnja neizkoriščena energija (Wh, beta diag)"},
-      "active_load_cumulative_mopped_up_wh": {"name": "Skupna pokrita energija aktivnih bremen (Wh, beta diag)"},
-      "active_load_cumulative_overshoot_wh": {"name": "Skupna prekoračitev aktivnih bremen (Wh, beta diag)"},
-      "active_load_cumulative_undershoot_wh": {"name": "Skupni primanjkljaj aktivnih bremen (Wh, beta diag)"}
+      "active_load_control_enabled": {"name": "Aktivno krmiljenje bremen (zastarelo)"},
+      "active_load_calibration_status": {"name": "Stanje kalibracije bremen (zastarelo)"},
+      "active_load_estimated_load_count": {"name": "Število ocenjenih bremen"},
+      "active_load_correction_wh": {"name": "Korekcija aktivnih bremen (kWh)"},
+      "active_load_tracking_error_wh": {"name": "Napaka sledenja bremen (kWh)"},
+      "active_load_unused_shared_wh": {"name": "Zadnja neizkoriščena energija (kWh, zastarelo)"},
+      "active_load_cumulative_mopped_up_wh": {"name": "Skupna pokrita energija aktivnih bremen (kWh)"},
+      "active_load_cumulative_overshoot_wh": {"name": "Skupna prekoračitev aktivnih bremen (kWh)"},
+      "active_load_cumulative_undershoot_wh": {"name": "Skupni primanjkljaj aktivnih bremen (kWh)"}
     }
   },
   "services": {

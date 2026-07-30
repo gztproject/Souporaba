@@ -121,20 +121,20 @@
       "source_reset_count": {"name": "Source reset count"},
       "reconciliation_mismatch_count": {"name": "Reconciliation mismatch count"}
       ,
-      "active_load_target_wh": {"name": "Active load target (Wh)"},
-      "active_load_measured_wh": {"name": "Active load measured energy (Wh)"},
-      "active_load_remaining_wh": {"name": "Active load remaining target (Wh)"},
+      "active_load_target_wh": {"name": "Active load target (kWh)"},
+      "active_load_measured_wh": {"name": "Active load measured energy (kWh)"},
+      "active_load_remaining_wh": {"name": "Active load remaining target (kWh)"},
       "active_load_available_count": {"name": "Available active load count"},
       "active_load_seconds_remaining": {"name": "Seconds remaining in interval"},
-      "active_load_control_enabled": {"name": "Active load control enabled (beta diag)"},
-      "active_load_calibration_status": {"name": "Active load calibration status (beta diag)"},
-      "active_load_estimated_load_count": {"name": "Estimated active load count (beta diag)"},
-      "active_load_correction_wh": {"name": "Active load correction (Wh, beta diag)"},
-      "active_load_tracking_error_wh": {"name": "Active load tracking error (Wh, beta diag)"},
-      "active_load_unused_shared_wh": {"name": "Last unused shared energy (Wh, beta diag)"},
-      "active_load_cumulative_mopped_up_wh": {"name": "Active load total mopped-up energy (Wh, beta diag)"},
-      "active_load_cumulative_overshoot_wh": {"name": "Active load cumulative overshoot (Wh, beta diag)"},
-      "active_load_cumulative_undershoot_wh": {"name": "Active load cumulative undershoot (Wh, beta diag)"}
+      "active_load_control_enabled": {"name": "Active load control enabled (deprecated)"},
+      "active_load_calibration_status": {"name": "Active load calibration status (deprecated)"},
+      "active_load_estimated_load_count": {"name": "Estimated active load count"},
+      "active_load_correction_wh": {"name": "Active load correction (kWh)"},
+      "active_load_tracking_error_wh": {"name": "Active load tracking error (kWh)"},
+      "active_load_unused_shared_wh": {"name": "Last unused shared energy (kWh, deprecated)"},
+      "active_load_cumulative_mopped_up_wh": {"name": "Active load total mopped-up energy (kWh)"},
+      "active_load_cumulative_overshoot_wh": {"name": "Active load cumulative overshoot (kWh)"},
+      "active_load_cumulative_undershoot_wh": {"name": "Active load cumulative undershoot (kWh)"}
     }
   },
   "services": {

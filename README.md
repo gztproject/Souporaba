@@ -117,6 +117,7 @@ Brand images live in `custom_components/energy_sharing/brand/` (`icon.png`, `log
 - The integration only turns OFF switches it turned ON itself.
 - User/manual ON loads are never auto-turned-off by the integration.
 - Optional predictive early-stop can turn owned loads off before scheduled runtime if measured interval energy is about to exceed target/deadband.
+- **Active load total mopped-up energy** is a permanent sensor in **kWh** and is persisted across restarts/updates.
 
 Example with two boilers:
 
