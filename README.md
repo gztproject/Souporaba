@@ -107,8 +107,11 @@ Brand images live in `custom_components/energy_sharing/brand/` (`icon.png`, `log
 - Each finished 15-minute settlement sets the **next** slot's ALC target.
 - The target is **predicted leftover**, not only measured `unused_shared`:
   - house baseline import = `import − ALC energy` from the finished slot
-  - predicted leftover = `max(0, expected_shared − baseline)`
+  - last-interval leftover sample = `max(0, expected_shared − baseline)`
   - so a successful soak (unused ≈ 0) still schedules the next slot instead of skipping it
+- With enough lit intervals (non-zero shared potential), ALC **linearly extrapolates** shared potential and organic import one slot ahead from a short rolling window (~1 hour), so morning ramp-up and afternoon decline are reflected in the next target instead of lagging by a full interval.
+- Dark / zero-potential intervals are skipped so night zeros do not flatten the morning slope; with fewer than two lit samples the controller falls back to the last-interval formula.
+- Correction from previous-slot tracking error is applied only outside a small energy deadband.
 - Measured `unused_shared` from the finished slot is already gone to the supplier; ALC cannot reclaim it, only avoid repeating the miss.
 - Control is driven by measured power/energy, not by switch ON state alone.
 - When global active-load control is disabled, integration still monitors power and learns load behavior but performs no switch ON/OFF calls.

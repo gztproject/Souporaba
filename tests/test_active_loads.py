@@ -139,6 +139,7 @@ async def test_notify_uses_predicted_budget_every_slot(
         await hass.async_block_till_done()
 
         # Successful soak last interval: unused=0 but ALC consumed 90 Wh.
+        # Single lit sample → fall back to last-interval leftover.
         controller.notify_processed_interval(
             unused_shared_kwh=0.0,
             shared_energy_kwh=0.10,
@@ -150,6 +151,153 @@ async def test_notify_uses_predicted_budget_every_slot(
         assert snapshot["last_unused_shared_wh"] == pytest.approx(0.0)
         assert snapshot["last_interval_base_target_wh"] == pytest.approx(90.0)
         assert snapshot["target_wh"] == pytest.approx(90.0)
+        assert snapshot["prediction_sample_count"] == 1
+    finally:
+        await controller.async_unload()
+
+
+async def _setup_predict_controller(hass: HomeAssistant) -> ActiveLoadController:
+    manager = _FakeManager({})
+    controller = ActiveLoadController(
+        hass,
+        manager,
+        [
+            ActiveLoadConfig(
+                switch_entity_id="switch.boiler_a",
+                power_sensor_entity_id="sensor.boiler_a_power",
+                priority=0,
+                enabled=True,
+            )
+        ],
+        interval_minutes=15,
+    )
+    await controller.async_setup()
+    hass.states.async_set("switch.boiler_a", "off")
+    hass.states.async_set(
+        "sensor.boiler_a_power",
+        "2000",
+        attributes={"unit_of_measurement": "W", "device_class": "power"},
+    )
+    await hass.async_block_till_done()
+    return controller
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_linear_prediction_rising_shared_above_last_interval(
+    hass: HomeAssistant,
+) -> None:
+    controller = await _setup_predict_controller(hass)
+    try:
+        # Rising potential, flat organic baseline → next leftover above last sample.
+        samples = [
+            (0.10, 0.02),
+            (0.15, 0.02),
+            (0.20, 0.02),
+        ]
+        for potential, import_kwh in samples:
+            controller.notify_processed_interval(
+                unused_shared_kwh=max(potential - import_kwh, 0.0),
+                shared_energy_kwh=potential,
+                expected_shared_kwh=potential,
+                receiver_import_kwh=import_kwh,
+                active_load_kwh=0.0,
+            )
+        snapshot = controller.get_snapshot()
+        last_interval_leftover_wh = (0.20 - 0.02) * 1000.0
+        assert snapshot["prediction_sample_count"] == 3
+        assert snapshot["last_interval_base_target_wh"] > last_interval_leftover_wh
+        assert snapshot["predicted_potential_kwh"] is not None
+        assert snapshot["predicted_potential_kwh"] > 0.20
+        assert snapshot["predicted_baseline_kwh"] == pytest.approx(0.02)
+    finally:
+        await controller.async_unload()
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_linear_prediction_falling_shared_below_last_interval(
+    hass: HomeAssistant,
+) -> None:
+    controller = await _setup_predict_controller(hass)
+    try:
+        samples = [
+            (0.30, 0.05),
+            (0.22, 0.08),
+            (0.14, 0.11),
+        ]
+        for potential, import_kwh in samples:
+            controller.notify_processed_interval(
+                unused_shared_kwh=max(potential - import_kwh, 0.0),
+                shared_energy_kwh=potential,
+                expected_shared_kwh=potential,
+                receiver_import_kwh=import_kwh,
+                active_load_kwh=0.0,
+            )
+        snapshot = controller.get_snapshot()
+        last_interval_leftover_wh = (0.14 - 0.11) * 1000.0
+        assert snapshot["prediction_sample_count"] == 3
+        assert snapshot["last_interval_base_target_wh"] < last_interval_leftover_wh
+        assert snapshot["predicted_potential_kwh"] is not None
+        assert snapshot["predicted_potential_kwh"] < 0.14
+        assert snapshot["predicted_baseline_kwh"] is not None
+        assert snapshot["predicted_baseline_kwh"] > 0.11
+    finally:
+        await controller.async_unload()
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_linear_prediction_skips_dark_zero_potential(
+    hass: HomeAssistant,
+) -> None:
+    controller = await _setup_predict_controller(hass)
+    try:
+        controller.notify_processed_interval(
+            unused_shared_kwh=0.0,
+            shared_energy_kwh=0.0,
+            expected_shared_kwh=0.0,
+            receiver_import_kwh=0.05,
+            active_load_kwh=0.0,
+        )
+        snapshot = controller.get_snapshot()
+        assert snapshot["prediction_sample_count"] == 0
+        assert snapshot["last_interval_base_target_wh"] == pytest.approx(0.0)
+
+        controller.notify_processed_interval(
+            unused_shared_kwh=0.08,
+            shared_energy_kwh=0.10,
+            expected_shared_kwh=0.10,
+            receiver_import_kwh=0.02,
+            active_load_kwh=0.0,
+        )
+        snapshot = controller.get_snapshot()
+        assert snapshot["prediction_sample_count"] == 1
+        # Still single lit sample → last-interval fallback.
+        assert snapshot["last_interval_base_target_wh"] == pytest.approx(80.0)
+    finally:
+        await controller.async_unload()
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_correction_deadband_skips_tiny_tracking_error(
+    hass: HomeAssistant,
+) -> None:
+    controller = await _setup_predict_controller(hass)
+    try:
+        # Roll copies interval_target/measured into previous_* for correction.
+        controller._interval.interval_id = "old-interval"  # noqa: SLF001
+        controller._interval.interval_target_wh = 100.0  # noqa: SLF001
+        controller._interval.measured_total_wh = 98.5  # noqa: SLF001
+        controller.notify_processed_interval(
+            unused_shared_kwh=0.08,
+            shared_energy_kwh=0.10,
+            expected_shared_kwh=0.10,
+            receiver_import_kwh=0.02,
+            active_load_kwh=0.0,
+        )
+        snapshot = controller.get_snapshot()
+        # |error|=1.5 Wh < default deadband 3 Wh → no correction.
+        assert snapshot["applied_correction_wh"] == pytest.approx(0.0)
+        assert snapshot["tracking_error_wh"] == pytest.approx(1.5)
+        assert snapshot["target_wh"] == pytest.approx(80.0)
     finally:
         await controller.async_unload()
 

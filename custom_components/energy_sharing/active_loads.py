@@ -17,6 +17,8 @@ from homeassistant.helpers.event import async_call_later, async_track_state_chan
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    ACTIVE_LOAD_PREDICTION_HISTORY_SIZE,
+    ACTIVE_LOAD_PREDICTION_MIN_STEP_KWH,
     CONF_ACTIVE_LOAD_CONTROL_ENABLED,
     CONF_ACTIVE_LOAD_CONTROL_TICK_SECONDS,
     CONF_ACTIVE_LOAD_CORRECTION_GAIN,
@@ -110,6 +112,41 @@ class ActiveLoadIntervalState:
     measured_total_wh: float = 0.0
 
 
+@dataclass(slots=True)
+class PredictionSample:
+    """One lit-interval sample for next-slot linear prediction."""
+
+    index: int
+    potential_kwh: float
+    baseline_import_kwh: float
+
+
+def _ols_project_next(values: list[float]) -> float | None:
+    """Project one step ahead from evenly spaced samples via OLS."""
+    n = len(values)
+    if n < 2:
+        return None
+    # x = 0..n-1; project x = n
+    sum_x = (n - 1) * n / 2.0
+    sum_xx = (n - 1) * n * (2 * n - 1) / 6.0
+    sum_y = sum(values)
+    sum_xy = sum(i * y for i, y in enumerate(values))
+    denom = n * sum_xx - sum_x * sum_x
+    if abs(denom) < 1e-12:
+        return values[-1]
+    slope = (n * sum_xy - sum_x * sum_y) / denom
+    intercept = (sum_y - slope * sum_x) / n
+    return intercept + slope * n
+
+
+def _clamp_projected_step(last_value: float, projected: float) -> float:
+    """Limit one-step extrapolation vs last observed sample."""
+    max_delta = max(0.5 * abs(last_value), ACTIVE_LOAD_PREDICTION_MIN_STEP_KWH)
+    lo = last_value - max_delta
+    hi = last_value + max_delta
+    return max(0.0, min(hi, max(lo, projected)))
+
+
 class ActiveLoadController:
     """Measured-power active load controller."""
 
@@ -140,6 +177,10 @@ class ActiveLoadController:
         self._cumulative_mopped_up_wh: float = 0.0
         self._cumulative_overshoot_wh: float = 0.0
         self._cumulative_undershoot_wh: float = 0.0
+        self._prediction_history: list[PredictionSample] = []
+        self._prediction_next_index: int = 0
+        self._predicted_potential_kwh: float | None = None
+        self._predicted_baseline_kwh: float | None = None
         self._restore_estimated_power()
         self._restore_cumulative_stats()
 
@@ -447,6 +488,85 @@ class ActiveLoadController:
         predicted_wh = max(potential_kwh - baseline_import_kwh, 0.0) * 1000.0
         return unused_wh, predicted_wh
 
+    def _append_prediction_sample(
+        self,
+        *,
+        potential_kwh: float,
+        baseline_import_kwh: float,
+    ) -> None:
+        """Append a lit-interval sample; skip dark / zero-potential slots."""
+        if potential_kwh <= 0:
+            return
+        sample = PredictionSample(
+            index=self._prediction_next_index,
+            potential_kwh=potential_kwh,
+            baseline_import_kwh=max(baseline_import_kwh, 0.0),
+        )
+        self._prediction_next_index += 1
+        self._prediction_history.append(sample)
+        overflow = len(self._prediction_history) - ACTIVE_LOAD_PREDICTION_HISTORY_SIZE
+        if overflow > 0:
+            del self._prediction_history[:overflow]
+
+    def _linear_next_interval_budget_wh(
+        self,
+        *,
+        unused_shared_kwh: float,
+        shared_energy_kwh: float | None,
+        expected_shared_kwh: float | None,
+        receiver_import_kwh: float | None,
+        active_load_kwh: float | None,
+    ) -> tuple[float, float]:
+        """Append last-interval sample and linearly project next-slot leftover."""
+        unused_wh, last_interval_wh = self._predict_unused_budget_wh(
+            unused_shared_kwh=unused_shared_kwh,
+            shared_energy_kwh=shared_energy_kwh,
+            expected_shared_kwh=expected_shared_kwh,
+            receiver_import_kwh=receiver_import_kwh,
+            active_load_kwh=active_load_kwh,
+        )
+
+        potential_kwh: float | None = None
+        baseline_kwh: float | None = None
+        if (
+            receiver_import_kwh is not None
+            and (shared_energy_kwh is not None or expected_shared_kwh is not None)
+        ):
+            potential_kwh = (
+                expected_shared_kwh
+                if expected_shared_kwh is not None
+                else float(shared_energy_kwh or 0.0)
+            )
+            alc_kwh = max(float(active_load_kwh or 0.0), 0.0)
+            baseline_kwh = max(float(receiver_import_kwh) - alc_kwh, 0.0)
+            self._append_prediction_sample(
+                potential_kwh=potential_kwh,
+                baseline_import_kwh=baseline_kwh,
+            )
+
+        if len(self._prediction_history) < 2:
+            self._predicted_potential_kwh = potential_kwh
+            self._predicted_baseline_kwh = baseline_kwh
+            return unused_wh, last_interval_wh
+
+        potentials = [s.potential_kwh for s in self._prediction_history]
+        baselines = [s.baseline_import_kwh for s in self._prediction_history]
+        projected_potential = _ols_project_next(potentials)
+        projected_baseline = _ols_project_next(baselines)
+        if projected_potential is None or projected_baseline is None:
+            self._predicted_potential_kwh = potential_kwh
+            self._predicted_baseline_kwh = baseline_kwh
+            return unused_wh, last_interval_wh
+
+        last_potential = potentials[-1]
+        last_baseline = baselines[-1]
+        next_potential = _clamp_projected_step(last_potential, projected_potential)
+        next_baseline = _clamp_projected_step(last_baseline, projected_baseline)
+        self._predicted_potential_kwh = next_potential
+        self._predicted_baseline_kwh = next_baseline
+        base_target_wh = max(0.0, next_potential - next_baseline) * 1000.0
+        return unused_wh, base_target_wh
+
     def notify_processed_interval(
         self,
         unused_shared_kwh: float,
@@ -470,7 +590,7 @@ class ActiveLoadController:
         if self._interval.interval_id != interval_id:
             self._roll_interval(interval_id, interval_end)
 
-        unused_wh, base_target_wh = self._predict_unused_budget_wh(
+        unused_wh, base_target_wh = self._linear_next_interval_budget_wh(
             unused_shared_kwh=unused_shared_kwh,
             shared_energy_kwh=shared_energy_kwh,
             expected_shared_kwh=expected_shared_kwh,
@@ -492,7 +612,16 @@ class ActiveLoadController:
         self._persist_cumulative_stats()
         gain = float(self._opt(CONF_ACTIVE_LOAD_CORRECTION_GAIN, DEFAULT_ACTIVE_LOAD_CORRECTION_GAIN))
         max_corr = float(self._opt(CONF_ACTIVE_LOAD_MAX_CORRECTION_WH, DEFAULT_ACTIVE_LOAD_MAX_CORRECTION_WH))
-        correction_wh = max(-max_corr, min(max_corr, gain * error_wh))
+        deadband_wh = float(
+            self._opt(
+                CONF_ACTIVE_LOAD_ENERGY_DEADBAND_WH,
+                DEFAULT_ACTIVE_LOAD_ENERGY_DEADBAND_WH,
+            )
+        )
+        if abs(error_wh) <= deadband_wh:
+            correction_wh = 0.0
+        else:
+            correction_wh = max(-max_corr, min(max_corr, gain * error_wh))
         capacity_wh = self._estimate_interval_capacity_wh(interval_end)
 
         self._interval.previous_tracking_error_wh = error_wh
@@ -500,11 +629,15 @@ class ActiveLoadController:
         self._interval.interval_target_wh = max(0.0, min(base_target_wh + correction_wh, capacity_wh))
 
         _LOGGER.info(
-            "Active load interval %s: unused=%.3fWh predicted=%.3fWh corr=%.3fWh "
+            "Active load interval %s: unused=%.3fWh predicted=%.3fWh "
+            "pot=%.3fkWh base=%.3fkWh samples=%d corr=%.3fWh "
             "cap=%.3fWh target=%.3fWh available_loads=%d estimated_loads=%d",
             interval_id,
             unused_wh,
             base_target_wh,
+            self._predicted_potential_kwh or 0.0,
+            self._predicted_baseline_kwh or 0.0,
+            len(self._prediction_history),
             correction_wh,
             capacity_wh,
             self._interval.interval_target_wh,
@@ -552,6 +685,9 @@ class ActiveLoadController:
             "interval_id": self._interval.interval_id,
             "last_unused_shared_wh": self._last_unused_shared_wh,
             "last_interval_base_target_wh": self._last_interval_base_target_wh,
+            "prediction_sample_count": len(self._prediction_history),
+            "predicted_potential_kwh": self._predicted_potential_kwh,
+            "predicted_baseline_kwh": self._predicted_baseline_kwh,
             "cumulative_mopped_up_wh": self._cumulative_mopped_up_wh,
             "cumulative_overshoot_wh": self._cumulative_overshoot_wh,
             "cumulative_undershoot_wh": self._cumulative_undershoot_wh,
