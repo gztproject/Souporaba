@@ -1035,6 +1035,19 @@ class ActiveLoadController:
             if self._interval.interval_id:
                 load.idle_latched_until_interval_id = self._interval.interval_id
 
+    @staticmethod
+    def _is_non_boolean_switch_state(state: Any) -> bool:
+        """Return True for missing/unavailable/unknown switch states."""
+        if state is None:
+            return True
+        return state.state in ("unavailable", "unknown")
+
+    def _mark_manual_switch_override(self, load: ActiveLoadRuntime) -> None:
+        """Release ownership after a real external on/off override."""
+        load.owns_switch = False
+        if self._interval.interval_id is not None:
+            load.manually_excluded_until_interval_id = self._interval.interval_id
+
     @callback
     def _handle_switch_change(self, event: Any) -> None:
         entity_id = event.data.get("entity_id")
@@ -1052,22 +1065,45 @@ class ActiveLoadController:
         )
         if matched is None:
             return
-        now = dt_util.now()
-        was_on = bool(old_state and old_state.state == "on")
-        is_on = new_state.state == "on"
         context_id = getattr(new_state.context, "id", None)
         if context_id is not None and context_id == matched.last_integration_context_id:
             return
-        if is_on and not was_on:
+
+        # Device blips must not look like manual overrides: ALC would release
+        # ownership and leave an orphaned ON switch it refuses to turn off.
+        if self._is_non_boolean_switch_state(new_state):
+            matched.switch_available = False
+            return
+
+        matched.switch_available = True
+        new = new_state.state
+        if new not in ("on", "off"):
+            return
+
+        old_unknown = self._is_non_boolean_switch_state(old_state)
+        was_on = bool(old_state and old_state.state == "on")
+        was_off = bool(old_state and old_state.state == "off")
+        is_on = new == "on"
+        now = dt_util.now()
+
+        if is_on and (was_off or old_unknown):
             matched.last_start_ts = now
             matched.below_threshold_since = None
-        elif was_on and not is_on:
+            matched.switch_is_on = True
+            if matched.owns_switch:
+                # Keep/reclaim ownership through unavailable→off→on restores.
+                return
+            self._mark_manual_switch_override(matched)
+            return
+
+        if not is_on and (was_on or old_unknown):
+            matched.switch_is_on = False
+            if old_unknown:
+                # Offline recovery reported off; keep ownership if we still have it.
+                return
             matched.last_stop_ts = now
             matched.startup_probing = False
-        # User/manual action: release ownership and exclude for current interval.
-        matched.owns_switch = False
-        if self._interval.interval_id is not None:
-            matched.manually_excluded_until_interval_id = self._interval.interval_id
+            self._mark_manual_switch_override(matched)
 
     @callback
     def _handle_power_change(self, event: Any) -> None:

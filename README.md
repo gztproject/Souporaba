@@ -119,6 +119,7 @@ Brand images live in `custom_components/energy_sharing/brand/` (`icon.png`, `log
 - If a load is ON but measured power stays near zero (e.g. thermostat opened), the controller marks it idle for the interval and reallocates target energy to other loads.
 - The integration only turns OFF switches it turned ON itself.
 - User/manual ON loads are never auto-turned-off by the integration.
+- Brief `unavailable`/`unknown` switch flickers do not count as manual overrides; ALC keeps ownership through device reconnect blips so it can still turn the load off.
 - Optional predictive early-stop can turn owned loads off before scheduled runtime if measured interval energy is about to exceed target/deadband.
 - **Active load total mopped-up energy** is a permanent sensor in **kWh** and is persisted across restarts/updates.
 

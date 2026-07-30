@@ -547,6 +547,93 @@ async def test_manual_switch_on_sets_start_timestamp(hass: HomeAssistant) -> Non
 
 
 @freeze_time("2026-07-12 15:00:10+02:00")
+async def test_unavailable_flicker_keeps_owned_switch(hass: HomeAssistant) -> None:
+    """Device blips must not orphan an ALC-owned ON switch as 'manual'."""
+    manager = _FakeManager({})
+    controller = ActiveLoadController(
+        hass,
+        manager,
+        [
+            ActiveLoadConfig(
+                switch_entity_id="switch.kitchen_boiler",
+                power_sensor_entity_id="sensor.kitchen_boiler_power",
+                priority=0,
+                enabled=True,
+            )
+        ],
+        interval_minutes=15,
+    )
+    await controller.async_setup()
+    try:
+        hass.states.async_set("switch.kitchen_boiler", "on")
+        hass.states.async_set(
+            "sensor.kitchen_boiler_power",
+            "2200",
+            attributes={"unit_of_measurement": "W", "device_class": "power"},
+        )
+        await hass.async_block_till_done()
+
+        load = controller._loads[0]  # noqa: SLF001
+        load.owns_switch = True
+        load.switch_is_on = True
+        load.switch_available = True
+        controller._interval.interval_id = "interval-1"  # noqa: SLF001
+
+        # Match the soak blip: on → unavailable → off → on (foreign contexts).
+        hass.states.async_set("switch.kitchen_boiler", "unavailable")
+        await hass.async_block_till_done()
+        assert load.owns_switch is True
+        assert load.manually_excluded_until_interval_id is None
+
+        hass.states.async_set("switch.kitchen_boiler", "off")
+        await hass.async_block_till_done()
+        assert load.owns_switch is True
+        assert load.manually_excluded_until_interval_id is None
+
+        hass.states.async_set("switch.kitchen_boiler", "on")
+        await hass.async_block_till_done()
+        assert load.owns_switch is True
+        assert load.manually_excluded_until_interval_id is None
+        assert load.switch_is_on is True
+    finally:
+        controller._loads[0].owns_switch = False  # noqa: SLF001
+        await controller.async_unload()
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_real_manual_off_still_releases_ownership(hass: HomeAssistant) -> None:
+    manager = _FakeManager({})
+    controller = ActiveLoadController(
+        hass,
+        manager,
+        [
+            ActiveLoadConfig(
+                switch_entity_id="switch.boiler_a",
+                power_sensor_entity_id="sensor.boiler_a_power",
+                priority=0,
+                enabled=True,
+            )
+        ],
+        interval_minutes=15,
+    )
+    await controller.async_setup()
+    try:
+        hass.states.async_set("switch.boiler_a", "on")
+        await hass.async_block_till_done()
+        load = controller._loads[0]  # noqa: SLF001
+        load.owns_switch = True
+        load.switch_is_on = True
+        controller._interval.interval_id = "interval-1"  # noqa: SLF001
+
+        hass.states.async_set("switch.boiler_a", "off")
+        await hass.async_block_till_done()
+        assert load.owns_switch is False
+        assert load.manually_excluded_until_interval_id == "interval-1"
+    finally:
+        await controller.async_unload()
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
 async def test_calibrate_loads_learns_and_restores_state(hass: HomeAssistant) -> None:
     manager = _FakeManager(
         {
