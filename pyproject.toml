@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "energy-sharing"
-version = "0.3.0-rc.1"
+version = "0.3.0-rc.2"
 description = "Home Assistant integration for solar energy sharing settlement"
 readme = "README.md"
 requires-python = ">=3.12"
