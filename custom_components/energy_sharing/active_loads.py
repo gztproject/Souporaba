@@ -110,6 +110,7 @@ class ActiveLoadIntervalState:
     previous_tracking_error_wh: float = 0.0
     correction_wh: float = 0.0
     measured_total_wh: float = 0.0
+    owned_measured_total_wh: float = 0.0
 
 
 @dataclass(slots=True)
@@ -601,13 +602,15 @@ class ActiveLoadController:
         self._last_interval_base_target_wh = base_target_wh
         error_wh = self._interval.previous_target_wh - self._interval.previous_actual_wh
 
-        # Accumulate mopped-up energy: what the loads actually consumed this interval.
+        # Accumulate mopped-up energy from ALC-owned consumption only.
+        # External/manual ON energy still counts in measured_total for control
+        # remaining, but must not inflate mopped/overshoot or correction.
         self._cumulative_mopped_up_wh += self._interval.previous_actual_wh
         if error_wh < 0:
-            # Loads consumed more than targeted (overshoot).
+            # Owned loads consumed more than targeted (overshoot).
             self._cumulative_overshoot_wh += -error_wh
         elif error_wh > 0:
-            # Budget was available but not fully consumed (undershoot).
+            # Budget was available but not fully consumed by owned loads (undershoot).
             self._cumulative_undershoot_wh += error_wh
         self._persist_cumulative_stats()
         gain = float(self._opt(CONF_ACTIVE_LOAD_CORRECTION_GAIN, DEFAULT_ACTIVE_LOAD_CORRECTION_GAIN))
@@ -659,6 +662,7 @@ class ActiveLoadController:
         return {
             "target_wh": self._interval.interval_target_wh,
             "measured_wh": self._interval.measured_total_wh,
+            "owned_measured_wh": self._interval.owned_measured_total_wh,
             "remaining_wh": max(0.0, self._interval.interval_target_wh - self._interval.measured_total_wh),
             "tracking_error_wh": self._interval.previous_tracking_error_wh,
             "applied_correction_wh": self._interval.correction_wh,
@@ -773,11 +777,27 @@ class ActiveLoadController:
         self._last_monotonic = now_mono
 
         total_wh = 0.0
+        owned_wh = 0.0
         for load in self._loads:
-            load.interval_energy_wh += load.measured_power_w * elapsed / 3600.0
+            delta_wh = load.measured_power_w * elapsed / 3600.0
+            load.interval_energy_wh += delta_wh
             total_wh += load.interval_energy_wh
+            if load.owns_switch:
+                owned_wh += delta_wh
             self._update_learning(load)
+        # Owned energy is interval-cumulative; add this tick's owned deltas.
+        self._interval.owned_measured_total_wh += owned_wh
         self._interval.measured_total_wh = total_wh
+
+    def _min_start_energy_wh(self, load: ActiveLoadRuntime) -> float:
+        """Minimum energy committed by turning a load on (min-on window)."""
+        power_w = load.estimated_power_w or load.measured_power_w
+        if power_w <= 0:
+            return 0.0
+        min_on = int(
+            self._opt(CONF_ACTIVE_LOAD_MIN_ON_SECONDS, DEFAULT_ACTIVE_LOAD_MIN_ON_SECONDS)
+        )
+        return power_w * max(min_on, 0) / 3600.0
 
     def _update_learning(self, load: ActiveLoadRuntime) -> None:
         threshold = float(self._opt(CONF_ACTIVE_LOAD_MIN_ACTIVE_POWER_W, DEFAULT_ACTIVE_LOAD_MIN_ACTIVE_POWER_W))
@@ -856,10 +876,17 @@ class ActiveLoadController:
                     load.skip_reason = "not_available"
                 continue
             if load.allocated_target_wh > 0 and not load.switch_is_on:
+                min_start_wh = self._min_start_energy_wh(load)
+                if (
+                    min_start_wh > 0
+                    and load.allocated_target_wh + 1e-9 < min_start_wh
+                ):
+                    load.skip_reason = "below_min_start"
+                    continue
                 await self._async_turn_on_load(load, reason="scheduled")
             elif load.allocated_target_wh <= 0:
                 await self._async_maybe_stop_owned(load, "no_allocation")
-                if not load.switch_is_on:
+                if not load.switch_is_on and load.skip_reason != "below_min_start":
                     load.skip_reason = "no_allocation"
 
     def _allocate_targets(self, remaining_wh: float) -> None:
@@ -876,10 +903,28 @@ class ActiveLoadController:
             if p <= 0:
                 continue
             capacity = p * remaining_seconds / 3600.0
+            min_start_wh = self._min_start_energy_wh(load)
+            # Skip loads that cannot run their min-on window within the leftover:
+            # starting them would guarantee overshoot.
+            if (
+                not load.switch_is_on
+                and min_start_wh > 0
+                and remaining_wh + 1e-9 < min_start_wh
+            ):
+                load.skip_reason = "below_min_start"
+                continue
             assigned = min(remaining_wh, capacity)
+            if (
+                not load.switch_is_on
+                and min_start_wh > 0
+                and 0 < assigned + 1e-9 < min_start_wh
+            ):
+                load.skip_reason = "below_min_start"
+                continue
             load.allocated_target_wh = assigned
             load.scheduled_runtime_s = assigned * 3600.0 / p if p > 0 else 0.0
             remaining_wh -= assigned
+            load.skip_reason = None
 
     async def _async_turn_on_load(
         self, load: ActiveLoadRuntime, reason: str, *, force: bool = False
@@ -950,11 +995,13 @@ class ActiveLoadController:
             await self._async_maybe_stop_owned(load, "interval_end")
 
     def _roll_interval(self, interval_id: str, interval_end: datetime) -> None:
-        self._interval.previous_actual_wh = self._interval.measured_total_wh
+        # Track mopped/overshoot against ALC-owned energy only.
+        self._interval.previous_actual_wh = self._interval.owned_measured_total_wh
         self._interval.previous_target_wh = self._interval.interval_target_wh
         self._interval.interval_id = interval_id
         self._interval.interval_end = interval_end
         self._interval.measured_total_wh = 0.0
+        self._interval.owned_measured_total_wh = 0.0
         self._interval.interval_target_wh = 0.0
         for load in self._loads:
             load.interval_energy_wh = 0.0

@@ -282,10 +282,11 @@ async def test_correction_deadband_skips_tiny_tracking_error(
 ) -> None:
     controller = await _setup_predict_controller(hass)
     try:
-        # Roll copies interval_target/measured into previous_* for correction.
+        # Roll copies interval_target/owned_measured into previous_* for correction.
         controller._interval.interval_id = "old-interval"  # noqa: SLF001
         controller._interval.interval_target_wh = 100.0  # noqa: SLF001
         controller._interval.measured_total_wh = 98.5  # noqa: SLF001
+        controller._interval.owned_measured_total_wh = 98.5  # noqa: SLF001
         controller.notify_processed_interval(
             unused_shared_kwh=0.08,
             shared_energy_kwh=0.10,
@@ -298,6 +299,87 @@ async def test_correction_deadband_skips_tiny_tracking_error(
         assert snapshot["applied_correction_wh"] == pytest.approx(0.0)
         assert snapshot["tracking_error_wh"] == pytest.approx(1.5)
         assert snapshot["target_wh"] == pytest.approx(80.0)
+    finally:
+        await controller.async_unload()
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_non_owned_energy_does_not_count_as_overshoot(
+    hass: HomeAssistant,
+) -> None:
+    controller = await _setup_predict_controller(hass)
+    try:
+        load = controller._loads[0]  # noqa: SLF001
+        load.owns_switch = False
+        load.switch_is_on = True
+        load.measured_power_w = 2000.0
+        controller._interval.interval_id = "old-interval"  # noqa: SLF001
+        controller._interval.interval_target_wh = 50.0  # noqa: SLF001
+        # External/manual run filled measured, but ALC owned none of it.
+        controller._interval.measured_total_wh = 400.0  # noqa: SLF001
+        controller._interval.owned_measured_total_wh = 0.0  # noqa: SLF001
+        controller.notify_processed_interval(
+            unused_shared_kwh=0.0,
+            shared_energy_kwh=0.05,
+            expected_shared_kwh=0.05,
+            receiver_import_kwh=0.40,
+            active_load_kwh=0.40,
+        )
+        snapshot = controller.get_snapshot()
+        # previous_actual = owned 0 → undershoot vs target 50, not a 350 Wh overshoot.
+        assert snapshot["tracking_error_wh"] == pytest.approx(50.0)
+        assert snapshot["cumulative_overshoot_wh"] == pytest.approx(0.0)
+        assert snapshot["cumulative_mopped_up_wh"] == pytest.approx(0.0)
+    finally:
+        await controller.async_unload()
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_skips_start_when_allocation_below_min_on_energy(
+    hass: HomeAssistant,
+) -> None:
+    manager = _FakeManager(
+        {
+            CONF_ACTIVE_LOAD_MIN_ON_SECONDS: 25,
+        }
+    )
+    controller = ActiveLoadController(
+        hass,
+        manager,
+        [
+            ActiveLoadConfig(
+                switch_entity_id="switch.boiler_a",
+                power_sensor_entity_id="sensor.boiler_a_power",
+                priority=0,
+                enabled=True,
+            )
+        ],
+        interval_minutes=15,
+    )
+    await controller.async_setup()
+    try:
+        hass.states.async_set("switch.boiler_a", "off")
+        hass.states.async_set(
+            "sensor.boiler_a_power",
+            "1800",
+            attributes={"unit_of_measurement": "W", "device_class": "power"},
+        )
+        await hass.async_block_till_done()
+        load = controller._loads[0]  # noqa: SLF001
+        load.estimated_power_w = 1800.0
+        load.measured_power_w = 1800.0
+        load.switch_is_on = False
+        load.switch_available = True
+        controller._interval.interval_id = "interval-1"  # noqa: SLF001
+        controller._interval.interval_end = dt_util.now() + timedelta(minutes=10)  # noqa: SLF001
+        controller._interval.interval_target_wh = 8.0  # noqa: SLF001
+        # 1800W * 25s = 12.5 Wh min-on; 8 Wh leftover must not start.
+        controller._allocate_targets(8.0)  # noqa: SLF001
+        assert load.allocated_target_wh == pytest.approx(0.0)
+        assert load.skip_reason == "below_min_start"
+        await controller._apply_control()  # noqa: SLF001
+        assert load.owns_switch is False
+        assert load.skip_reason == "below_min_start"
     finally:
         await controller.async_unload()
 
@@ -350,6 +432,7 @@ async def test_restores_and_persists_cumulative_stats(hass: HomeAssistant) -> No
     assert snapshot["cumulative_undershoot_wh"] == pytest.approx(3.0)
 
     controller._interval.measured_total_wh = 10.0  # noqa: SLF001
+    controller._interval.owned_measured_total_wh = 10.0  # noqa: SLF001
     controller._interval.interval_target_wh = 7.0  # noqa: SLF001
     controller._interval.interval_id = "old-interval"  # noqa: SLF001
     controller.notify_processed_interval(0.02)

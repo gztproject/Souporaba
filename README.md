@@ -121,6 +121,8 @@ Brand images live in `custom_components/energy_sharing/brand/` (`icon.png`, `log
 - User/manual ON loads are never auto-turned-off by the integration.
 - Brief `unavailable`/`unknown` switch flickers do not count as manual overrides; ALC keeps ownership through device reconnect blips so it can still turn the load off.
 - Optional predictive early-stop can turn owned loads off before scheduled runtime if measured interval energy is about to exceed target/deadband.
+- Mopped-up / overshoot / undershoot tracking uses **ALC-owned** consumption only; energy from manual or other-automation ON periods still reduces remaining budget (so ALC does not stack on top) but does not count as ALC overshoot.
+- ALC will not start a load when the leftover budget is below that load’s min-on energy (avoids guaranteed overshoot on tiny leftovers).
 - **Active load total mopped-up energy** is a permanent sensor in **kWh** and is persisted across restarts/updates.
 
 Example with two boilers:
