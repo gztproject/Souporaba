@@ -107,6 +107,7 @@ class ActiveLoadIntervalState:
     interval_target_wh: float = 0.0
     previous_target_wh: float = 0.0
     previous_actual_wh: float = 0.0
+    previous_measured_total_wh: float = 0.0
     previous_tracking_error_wh: float = 0.0
     correction_wh: float = 0.0
     measured_total_wh: float = 0.0
@@ -419,9 +420,7 @@ class ActiveLoadController:
                 self._notify_entity_update()
 
     def update_configuration(self, loads: list[ActiveLoadConfig], interval_minutes: int) -> None:
-        previous = {
-            load.config.switch_entity_id: load.estimated_power_w for load in self._loads
-        }
+        previous = {load.config.switch_entity_id: load for load in self._loads}
         self._loads = [
             ActiveLoadRuntime(config=load_cfg)
             for load_cfg in sorted(loads, key=lambda i: i.priority)
@@ -429,13 +428,20 @@ class ActiveLoadController:
         self._interval_minutes = interval_minutes
         for load in self._loads:
             switch_entity_id = load.config.switch_entity_id
+            prior = previous.get(switch_entity_id)
             stored = self._manager.get_active_load_estimated_power_map().get(
                 switch_entity_id
             )
             if stored is not None and stored > 0:
                 load.estimated_power_w = stored
-            elif previous.get(switch_entity_id) is not None:
-                load.estimated_power_w = previous[switch_entity_id]
+            elif prior is not None and prior.estimated_power_w is not None:
+                load.estimated_power_w = prior.estimated_power_w
+            if prior is not None:
+                load.owns_switch = prior.owns_switch
+                load.last_start_ts = prior.last_start_ts
+                load.last_stop_ts = prior.last_stop_ts
+                load.pending_stop_after_min_on = prior.pending_stop_after_min_on
+                load.last_integration_context_id = prior.last_integration_context_id
         for unsub in self._state_unsubs:
             unsub()
         self._state_unsubs.clear()
@@ -446,6 +452,43 @@ class ActiveLoadController:
         if self._interval.interval_id != interval_id:
             return 0.0
         return max(self._interval.measured_total_wh, 0.0) / 1000.0
+
+    def get_interval_owned_measured_kwh(self, interval_id: str) -> float:
+        """Return ALC-owned interval energy for prediction, if aligned."""
+        if self._interval.interval_id != interval_id:
+            return 0.0
+        return max(self._interval.owned_measured_total_wh, 0.0) / 1000.0
+
+    @staticmethod
+    def _interval_tracking_error_wh(
+        *,
+        target_wh: float,
+        owned_wh: float,
+        measured_wh: float,
+        min_start_wh: float,
+    ) -> float:
+        """Compare owned consumption to the budget left after non-owned use."""
+        if target_wh <= 0:
+            return 0.0
+        if (
+            owned_wh <= 0
+            and measured_wh <= 0
+            and min_start_wh > 0
+            and target_wh + 1e-9 < min_start_wh
+        ):
+            return 0.0
+        non_owned_wh = max(measured_wh - owned_wh, 0.0)
+        owned_budget_wh = max(target_wh - non_owned_wh, 0.0)
+        return owned_budget_wh - owned_wh
+
+    def _smallest_min_start_energy_wh(self) -> float:
+        values = [
+            self._min_start_energy_wh(load)
+            for load in self._loads
+            if load.config.enabled
+        ]
+        positives = [value for value in values if value > 0]
+        return min(positives) if positives else 0.0
 
     @staticmethod
     def _predict_unused_budget_wh(
@@ -600,7 +643,12 @@ class ActiveLoadController:
         )
         self._last_unused_shared_wh = unused_wh
         self._last_interval_base_target_wh = base_target_wh
-        error_wh = self._interval.previous_target_wh - self._interval.previous_actual_wh
+        error_wh = self._interval_tracking_error_wh(
+            target_wh=self._interval.previous_target_wh,
+            owned_wh=self._interval.previous_actual_wh,
+            measured_wh=self._interval.previous_measured_total_wh,
+            min_start_wh=self._smallest_min_start_energy_wh(),
+        )
 
         # Accumulate mopped-up energy from ALC-owned consumption only.
         # External/manual ON energy still counts in measured_total for control
@@ -997,6 +1045,7 @@ class ActiveLoadController:
     def _roll_interval(self, interval_id: str, interval_end: datetime) -> None:
         # Track mopped/overshoot against ALC-owned energy only.
         self._interval.previous_actual_wh = self._interval.owned_measured_total_wh
+        self._interval.previous_measured_total_wh = self._interval.measured_total_wh
         self._interval.previous_target_wh = self._interval.interval_target_wh
         self._interval.interval_id = interval_id
         self._interval.interval_end = interval_end

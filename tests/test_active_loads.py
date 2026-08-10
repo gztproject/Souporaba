@@ -315,7 +315,6 @@ async def test_non_owned_energy_does_not_count_as_overshoot(
         load.measured_power_w = 2000.0
         controller._interval.interval_id = "old-interval"  # noqa: SLF001
         controller._interval.interval_target_wh = 50.0  # noqa: SLF001
-        # External/manual run filled measured, but ALC owned none of it.
         controller._interval.measured_total_wh = 400.0  # noqa: SLF001
         controller._interval.owned_measured_total_wh = 0.0  # noqa: SLF001
         controller.notify_processed_interval(
@@ -323,12 +322,13 @@ async def test_non_owned_energy_does_not_count_as_overshoot(
             shared_energy_kwh=0.05,
             expected_shared_kwh=0.05,
             receiver_import_kwh=0.40,
-            active_load_kwh=0.40,
+            active_load_kwh=0.0,
         )
         snapshot = controller.get_snapshot()
-        # previous_actual = owned 0 → undershoot vs target 50, not a 350 Wh overshoot.
-        assert snapshot["tracking_error_wh"] == pytest.approx(50.0)
+        assert snapshot["tracking_error_wh"] == pytest.approx(0.0)
+        assert snapshot["applied_correction_wh"] == pytest.approx(0.0)
         assert snapshot["cumulative_overshoot_wh"] == pytest.approx(0.0)
+        assert snapshot["cumulative_undershoot_wh"] == pytest.approx(0.0)
         assert snapshot["cumulative_mopped_up_wh"] == pytest.approx(0.0)
     finally:
         await controller.async_unload()
@@ -381,6 +381,140 @@ async def test_skips_start_when_allocation_below_min_on_energy(
         assert load.owns_switch is False
         assert load.skip_reason == "below_min_start"
     finally:
+        await controller.async_unload()
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_mixed_owned_and_external_tracks_overshoot_not_undershoot(
+    hass: HomeAssistant,
+) -> None:
+    controller = await _setup_predict_controller(hass)
+    try:
+        controller._interval.interval_id = "old-interval"  # noqa: SLF001
+        controller._interval.interval_target_wh = 50.0  # noqa: SLF001
+        controller._interval.owned_measured_total_wh = 30.0  # noqa: SLF001
+        controller._interval.measured_total_wh = 60.0  # noqa: SLF001
+        controller.notify_processed_interval(
+            unused_shared_kwh=0.0,
+            shared_energy_kwh=0.05,
+            expected_shared_kwh=0.05,
+            receiver_import_kwh=0.06,
+            active_load_kwh=0.03,
+        )
+        snapshot = controller.get_snapshot()
+        assert snapshot["tracking_error_wh"] == pytest.approx(-10.0)
+        assert snapshot["applied_correction_wh"] == pytest.approx(-5.0)
+        assert snapshot["cumulative_overshoot_wh"] == pytest.approx(10.0)
+    finally:
+        await controller.async_unload()
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_below_min_start_interval_applies_no_correction(
+    hass: HomeAssistant,
+) -> None:
+    manager = _FakeManager({CONF_ACTIVE_LOAD_MIN_ON_SECONDS: 25})
+    controller = ActiveLoadController(
+        hass,
+        manager,
+        [
+            ActiveLoadConfig(
+                switch_entity_id="switch.boiler_a",
+                power_sensor_entity_id="sensor.boiler_a_power",
+                priority=0,
+                enabled=True,
+            )
+        ],
+        interval_minutes=15,
+    )
+    await controller.async_setup()
+    try:
+        load = controller._loads[0]  # noqa: SLF001
+        load.estimated_power_w = 1800.0
+        controller._interval.interval_id = "old-interval"  # noqa: SLF001
+        controller._interval.interval_target_wh = 8.0  # noqa: SLF001
+        controller._interval.owned_measured_total_wh = 0.0  # noqa: SLF001
+        controller._interval.measured_total_wh = 0.0  # noqa: SLF001
+        controller.notify_processed_interval(
+            unused_shared_kwh=0.0,
+            shared_energy_kwh=0.01,
+            expected_shared_kwh=0.01,
+            receiver_import_kwh=0.01,
+            active_load_kwh=0.0,
+        )
+        snapshot = controller.get_snapshot()
+        assert snapshot["tracking_error_wh"] == pytest.approx(0.0)
+        assert snapshot["applied_correction_wh"] == pytest.approx(0.0)
+        assert snapshot["cumulative_undershoot_wh"] == pytest.approx(0.0)
+    finally:
+        await controller.async_unload()
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_prediction_uses_owned_active_load_only(
+    hass: HomeAssistant,
+) -> None:
+    _unused_wh, owned_predicted = ActiveLoadController._predict_unused_budget_wh(
+        unused_shared_kwh=0.0,
+        shared_energy_kwh=0.15,
+        expected_shared_kwh=0.15,
+        receiver_import_kwh=0.10,
+        active_load_kwh=0.03,
+    )
+    _unused_wh2, all_load_predicted = ActiveLoadController._predict_unused_budget_wh(
+        unused_shared_kwh=0.0,
+        shared_energy_kwh=0.15,
+        expected_shared_kwh=0.15,
+        receiver_import_kwh=0.10,
+        active_load_kwh=0.09,
+    )
+    assert owned_predicted == pytest.approx(80.0)
+    assert all_load_predicted == pytest.approx(140.0)
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_update_configuration_preserves_ownership(
+    hass: HomeAssistant,
+) -> None:
+    manager = _FakeManager({})
+    controller = ActiveLoadController(
+        hass,
+        manager,
+        [
+            ActiveLoadConfig(
+                switch_entity_id="switch.boiler_a",
+                power_sensor_entity_id="sensor.boiler_a_power",
+                priority=0,
+                enabled=True,
+            )
+        ],
+        interval_minutes=15,
+    )
+    await controller.async_setup()
+    try:
+        load = controller._loads[0]  # noqa: SLF001
+        load.owns_switch = True
+        load.last_start_ts = dt_util.now()
+        load.pending_stop_after_min_on = True
+        load.last_integration_context_id = "ctx-123"
+        controller.update_configuration(
+            [
+                ActiveLoadConfig(
+                    switch_entity_id="switch.boiler_a",
+                    power_sensor_entity_id="sensor.boiler_a_power",
+                    priority=0,
+                    enabled=True,
+                )
+            ],
+            interval_minutes=15,
+        )
+        restored = controller._loads[0]  # noqa: SLF001
+        assert restored.owns_switch is True
+        assert restored.last_start_ts == load.last_start_ts
+        assert restored.pending_stop_after_min_on is True
+        assert restored.last_integration_context_id == "ctx-123"
+    finally:
+        controller._loads[0].owns_switch = False  # noqa: SLF001
         await controller.async_unload()
 
 

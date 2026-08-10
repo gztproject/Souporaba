@@ -717,9 +717,15 @@ class EnergySharingManager:
         )
 
         active_load_interval_kwh = 0.0
+        active_load_owned_kwh = 0.0
         if self._active_load_controller is not None:
             active_load_interval_kwh = (
                 self._active_load_controller.get_interval_measured_kwh(interval_id)
+            )
+            active_load_owned_kwh = (
+                self._active_load_controller.get_interval_owned_measured_kwh(
+                    interval_id
+                )
             )
         provider_export_kwh = settlement["provider_export_interval_kwh"]
         ideal_share_excluding_active_loads_pct = (
@@ -771,7 +777,7 @@ class EnergySharingManager:
                 shared_energy_kwh=result.shared_energy_interval_kwh,
                 expected_shared_kwh=result.expected_shared_kwh,
                 receiver_import_kwh=result.receiver_import_interval_kwh,
-                active_load_kwh=result.active_load_interval_kwh,
+                active_load_kwh=active_load_owned_kwh,
             )
 
         if accumulate:
