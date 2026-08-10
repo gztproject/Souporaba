@@ -38,6 +38,9 @@ htmlcov/
 *.swp
 *.swo
 
+# Cursor adversarial multimodel review evidence packet
+.adversarial-review/
+
 # Home Assistant
 .storage/
 home-assistant_v2.db

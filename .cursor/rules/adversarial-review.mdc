@@ -1,0 +1,50 @@
+---
+description: When to run adversarial multimodel review before commit, merge, or release
+alwaysApply: true
+---
+
+# Adversarial review workflow
+
+This project uses the Cursor local plugin **adversarial-multimodel-review**
+(`~/.cursor/plugins/local/adversarial-multimodel-review`).
+
+## When to run it
+
+After substantive implementation (ALC/control logic, storage migrations,
+settlement math, options/config flow) and **before**:
+
+- committing non-trivial changes
+- tagging a beta/rc/stable release
+- merging `dev` → `master`
+
+Skip for pure version bumps, typo-only docs, or trivial one-liners the user
+explicitly wants shipped immediately.
+
+## How to run it
+
+Prefer:
+
+```text
+Use the adversarial-multimodel-review skill to review the previous agent's work. Use the full available context.
+```
+
+Or slash commands: `/mm-review` / `/adversarial-multimodel-review`.
+
+Write the evidence packet under `.adversarial-review/` (gitignored). Do not
+paraphrase user intent; critics need verbatim quotes, the accepted plan,
+forbidden findings, the real diff, and test output.
+
+## Project-specific review focus
+
+Critics should pay special attention to:
+
+- Active-load ownership / unavailable flickers / orphaned ON switches
+- Interval energy accounting (owned vs all-load measured, mopped/overshoot)
+- 15-minute settlement semantics and storage migrations
+- Home Assistant service calls, contexts, and options defaults
+- Tests covering rising/falling prediction, dark-skip, ownership, min-start
+
+## Verdicts
+
+Honor the skill verdicts (`BLOCK`, `FIX FIRST`, `SAFE TO COMMIT`, etc.). Do not
+claim ready to release while the review says `BLOCK` or `FIX FIRST`.
