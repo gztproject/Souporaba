@@ -432,19 +432,6 @@ STATUS_SENSORS: tuple[EnergySharingSensorDescription, ...] = (
         icon="mdi:solar-power",
         status=True,
     ),
-    # Advanced diagnostics (kept permanently, but may be hidden by default in UI).
-    EnergySharingSensorDescription(
-        key="active_load_control_enabled",
-        translation_key="active_load_control_enabled",
-        icon="mdi:toggle-switch",
-        status=True,
-    ),
-    EnergySharingSensorDescription(
-        key="active_load_calibration_status",
-        translation_key="active_load_calibration_status",
-        icon="mdi:tune-variant",
-        status=True,
-    ),
     EnergySharingSensorDescription(
         key="active_load_estimated_load_count",
         translation_key="active_load_estimated_load_count",
@@ -463,13 +450,6 @@ STATUS_SENSORS: tuple[EnergySharingSensorDescription, ...] = (
         translation_key="active_load_tracking_error_wh",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         icon="mdi:chart-bell-curve",
-        status=True,
-    ),
-    EnergySharingSensorDescription(
-        key="active_load_unused_shared_wh",
-        translation_key="active_load_unused_shared_wh",
-        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
-        icon="mdi:solar-power-variant-outline",
         status=True,
     ),
     EnergySharingSensorDescription(
@@ -610,30 +590,6 @@ class EnergySharingSensor(SensorEntity):
 
         if description.key.startswith("active_load_"):
             active = self._manager.get_diagnostics_snapshot().get("active_loads") or {}
-            if description.key == "active_load_control_enabled":
-                if not active:
-                    self._attr_native_value = None
-                    self._attr_available = False
-                else:
-                    self._attr_native_value = (
-                        "enabled" if active.get("control_enabled") else "disabled"
-                    )
-                    self._attr_available = True
-                return
-            if description.key == "active_load_calibration_status":
-                if not active:
-                    self._attr_native_value = None
-                    self._attr_available = False
-                else:
-                    self._attr_native_value = (
-                        "running" if active.get("calibration_in_progress") else "idle"
-                    )
-                    self._attr_available = True
-                    self._attr_extra_state_attributes = {
-                        "last_result": active.get("calibration_last_result"),
-                        "last_finished_at": active.get("calibration_last_finished_at"),
-                    }
-                return
             value_map = {
                 "active_load_target_wh": "target_wh",
                 "active_load_measured_wh": "measured_wh",
@@ -643,7 +599,6 @@ class EnergySharingSensor(SensorEntity):
                 "active_load_estimated_load_count": "estimated_load_count",
                 "active_load_correction_wh": "applied_correction_wh",
                 "active_load_tracking_error_wh": "tracking_error_wh",
-                "active_load_unused_shared_wh": "last_unused_shared_wh",
                 "active_load_cumulative_mopped_up_wh": "cumulative_mopped_up_wh",
                 "active_load_cumulative_overshoot_wh": "cumulative_overshoot_wh",
                 "active_load_cumulative_undershoot_wh": "cumulative_undershoot_wh",
@@ -658,7 +613,6 @@ class EnergySharingSensor(SensorEntity):
                 "active_load_remaining_wh",
                 "active_load_correction_wh",
                 "active_load_tracking_error_wh",
-                "active_load_unused_shared_wh",
                 "active_load_cumulative_mopped_up_wh",
                 "active_load_cumulative_overshoot_wh",
                 "active_load_cumulative_undershoot_wh",
