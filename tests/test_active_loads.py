@@ -431,21 +431,47 @@ async def test_below_min_start_interval_applies_no_correction(
     try:
         load = controller._loads[0]  # noqa: SLF001
         load.estimated_power_w = 1800.0
+        for measured_wh in (0.0, 0.5, 2.0):
+            controller._interval.interval_id = "old-interval"  # noqa: SLF001
+            controller._interval.interval_target_wh = 8.0  # noqa: SLF001
+            controller._interval.owned_measured_total_wh = 0.0  # noqa: SLF001
+            controller._interval.measured_total_wh = measured_wh  # noqa: SLF001
+            controller.notify_processed_interval(
+                unused_shared_kwh=0.0,
+                shared_energy_kwh=0.01,
+                expected_shared_kwh=0.01,
+                receiver_import_kwh=0.01,
+                active_load_kwh=0.0,
+            )
+            snapshot = controller.get_snapshot()
+            assert snapshot["tracking_error_wh"] == pytest.approx(0.0)
+            assert snapshot["applied_correction_wh"] == pytest.approx(0.0)
+            assert snapshot["cumulative_undershoot_wh"] == pytest.approx(0.0)
+    finally:
+        await controller.async_unload()
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_partial_external_below_min_start_applies_no_correction(
+    hass: HomeAssistant,
+) -> None:
+    controller = await _setup_predict_controller(hass)
+    try:
+        controller._loads[0].estimated_power_w = 1800.0  # noqa: SLF001
         controller._interval.interval_id = "old-interval"  # noqa: SLF001
-        controller._interval.interval_target_wh = 8.0  # noqa: SLF001
+        controller._interval.interval_target_wh = 50.0  # noqa: SLF001
         controller._interval.owned_measured_total_wh = 0.0  # noqa: SLF001
-        controller._interval.measured_total_wh = 0.0  # noqa: SLF001
+        controller._interval.measured_total_wh = 40.0  # noqa: SLF001
         controller.notify_processed_interval(
             unused_shared_kwh=0.0,
-            shared_energy_kwh=0.01,
-            expected_shared_kwh=0.01,
-            receiver_import_kwh=0.01,
+            shared_energy_kwh=0.05,
+            expected_shared_kwh=0.05,
+            receiver_import_kwh=0.05,
             active_load_kwh=0.0,
         )
         snapshot = controller.get_snapshot()
         assert snapshot["tracking_error_wh"] == pytest.approx(0.0)
         assert snapshot["applied_correction_wh"] == pytest.approx(0.0)
-        assert snapshot["cumulative_undershoot_wh"] == pytest.approx(0.0)
     finally:
         await controller.async_unload()
 
@@ -497,6 +523,13 @@ async def test_update_configuration_preserves_ownership(
         load.last_start_ts = dt_util.now()
         load.pending_stop_after_min_on = True
         load.last_integration_context_id = "ctx-123"
+        load.interval_energy_wh = 95.0
+        load.idle_latched_until_interval_id = "interval-1"
+        load.manually_excluded_until_interval_id = "interval-1"
+        controller._interval.interval_id = "interval-1"  # noqa: SLF001
+        controller._interval.interval_target_wh = 100.0  # noqa: SLF001
+        controller._interval.measured_total_wh = 95.0  # noqa: SLF001
+        controller._interval.owned_measured_total_wh = 95.0  # noqa: SLF001
         controller.update_configuration(
             [
                 ActiveLoadConfig(
@@ -509,12 +542,92 @@ async def test_update_configuration_preserves_ownership(
             interval_minutes=15,
         )
         restored = controller._loads[0]  # noqa: SLF001
+        assert restored is load
         assert restored.owns_switch is True
         assert restored.last_start_ts == load.last_start_ts
         assert restored.pending_stop_after_min_on is True
         assert restored.last_integration_context_id == "ctx-123"
+        assert restored.interval_energy_wh == pytest.approx(95.0)
+        assert restored.idle_latched_until_interval_id == "interval-1"
+        assert restored.manually_excluded_until_interval_id == "interval-1"
+        snapshot = controller.get_snapshot()
+        assert snapshot["remaining_wh"] == pytest.approx(5.0)
     finally:
         controller._loads[0].owns_switch = False  # noqa: SLF001
+        await controller.async_unload()
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_update_configuration_turns_off_removed_owned_load(
+    hass: HomeAssistant,
+) -> None:
+    manager = _FakeManager({})
+    controller = ActiveLoadController(
+        hass,
+        manager,
+        [
+            ActiveLoadConfig(
+                switch_entity_id="switch.boiler_a",
+                power_sensor_entity_id="sensor.boiler_a_power",
+                priority=0,
+                enabled=True,
+            )
+        ],
+        interval_minutes=15,
+    )
+    await controller.async_setup()
+    try:
+        load = controller._loads[0]  # noqa: SLF001
+        load.owns_switch = True
+        with patch.object(
+            controller,
+            "_async_turn_off_load",
+            new=AsyncMock(),
+        ) as turn_off:
+            controller.update_configuration([], interval_minutes=15)
+            await hass.async_block_till_done()
+            turn_off.assert_awaited_once_with(
+                load, reason="config_removed", force=True
+            )
+        assert controller._loads == []
+    finally:
+        await controller.async_unload()
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_update_configuration_turns_off_removed_load_when_control_disabled(
+    hass: HomeAssistant,
+) -> None:
+    manager = _FakeManager({CONF_ACTIVE_LOAD_CONTROL_ENABLED: False})
+    controller = ActiveLoadController(
+        hass,
+        manager,
+        [
+            ActiveLoadConfig(
+                switch_entity_id="switch.boiler_a",
+                power_sensor_entity_id="sensor.boiler_a_power",
+                priority=0,
+                enabled=True,
+            )
+        ],
+        interval_minutes=15,
+    )
+    await controller.async_setup()
+    try:
+        load = controller._loads[0]  # noqa: SLF001
+        load.owns_switch = True
+        with patch.object(
+            controller,
+            "_async_turn_off_load",
+            new=AsyncMock(),
+        ) as turn_off:
+            controller.update_configuration([], interval_minutes=15)
+            await hass.async_block_till_done()
+            turn_off.assert_awaited_once_with(
+                load, reason="config_removed", force=True
+            )
+        assert controller._loads == []
+    finally:
         await controller.async_unload()
 
 

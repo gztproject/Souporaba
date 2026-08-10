@@ -421,27 +421,31 @@ class ActiveLoadController:
 
     def update_configuration(self, loads: list[ActiveLoadConfig], interval_minutes: int) -> None:
         previous = {load.config.switch_entity_id: load for load in self._loads}
-        self._loads = [
-            ActiveLoadRuntime(config=load_cfg)
-            for load_cfg in sorted(loads, key=lambda i: i.priority)
-        ]
+        new_switch_ids = {load_cfg.switch_entity_id for load_cfg in loads}
+        for switch_entity_id, prior in previous.items():
+            if switch_entity_id not in new_switch_ids and prior.owns_switch:
+                self.hass.async_create_task(
+                    self._async_turn_off_load(
+                        prior, reason="config_removed", force=True
+                    )
+                )
+        runtimes: list[ActiveLoadRuntime] = []
+        for load_cfg in sorted(loads, key=lambda i: i.priority):
+            runtime = previous.get(load_cfg.switch_entity_id)
+            if runtime is None:
+                runtime = ActiveLoadRuntime(config=load_cfg)
+            else:
+                runtime.config = load_cfg
+            runtimes.append(runtime)
+        self._loads = runtimes
         self._interval_minutes = interval_minutes
         for load in self._loads:
             switch_entity_id = load.config.switch_entity_id
-            prior = previous.get(switch_entity_id)
             stored = self._manager.get_active_load_estimated_power_map().get(
                 switch_entity_id
             )
             if stored is not None and stored > 0:
                 load.estimated_power_w = stored
-            elif prior is not None and prior.estimated_power_w is not None:
-                load.estimated_power_w = prior.estimated_power_w
-            if prior is not None:
-                load.owns_switch = prior.owns_switch
-                load.last_start_ts = prior.last_start_ts
-                load.last_stop_ts = prior.last_stop_ts
-                load.pending_stop_after_min_on = prior.pending_stop_after_min_on
-                load.last_integration_context_id = prior.last_integration_context_id
         for unsub in self._state_unsubs:
             unsub()
         self._state_unsubs.clear()
@@ -470,15 +474,14 @@ class ActiveLoadController:
         """Compare owned consumption to the budget left after non-owned use."""
         if target_wh <= 0:
             return 0.0
-        if (
-            owned_wh <= 0
-            and measured_wh <= 0
-            and min_start_wh > 0
-            and target_wh + 1e-9 < min_start_wh
-        ):
-            return 0.0
         non_owned_wh = max(measured_wh - owned_wh, 0.0)
         owned_budget_wh = max(target_wh - non_owned_wh, 0.0)
+        if (
+            owned_wh <= 0
+            and min_start_wh > 0
+            and owned_budget_wh + 1e-9 < min_start_wh
+        ):
+            return 0.0
         return owned_budget_wh - owned_wh
 
     def _smallest_min_start_energy_wh(self) -> float:
