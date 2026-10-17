@@ -1,6 +1,8 @@
 ## Energy Sharing v0.3.0-rc.3 (release candidate)
 
-Fixes found in the rc.2 two-month soak. A brief `0` flash on a mirrored shared-energy counter was treated as a real meter reset; the restored total was then accumulated as energy (~411.6 kWh of fake shared / unused on the Trata soak). Upgrade, then **reset integration totals** so those cumulatives start clean.
+Fixes found in the rc.2 two-month soak, plus the analysis export pack and a config-number for the monthly allocation percentage.
+
+A brief `0` flash on a mirrored shared-energy counter was treated as a real meter reset; the restored total was then accumulated as energy (~411.6 kWh of fake shared / unused on the Trata soak). Upgrade, then **reset integration totals** so those cumulatives start clean.
 
 ### Fixes since rc.2
 
@@ -8,13 +10,18 @@ Fixes found in the rc.2 two-month soak. A brief `0` flash on a mirrored shared-e
 - If a reset was already committed and the old total comes back, skip that jump (do not accumulate it).
 - Skip physically impossible interval jumps (above 100 kW continuous).
 - Count missed intervals once (no extra +1 on the failure record).
-- Do not drop ALC switch ownership on attribute-only `on → on` updates.
+
+### Also in this RC
+
+- Persist a rolling 14-month 15-minute archive and export a period-selectable CSV pack (`energy_sharing.export_analysis_pack`) under **Media → Local → energy_sharing**.
+- Conservative / optimistic next-month share recommendations from archived intervals.
+- Config number: **Fixed allocation percentage** (monthly Moj Elektro % without opening Options).
 
 ### After upgrade: reset totals
 
-Required if you ran **rc.2** (or earlier) through the soak. The engine is already on the correct live snapshot; only the **integration-owned cumulatives** (used / unused / shared / expected / import / export / billable, plus processed/skipped counters and ideal-share history) are poisoned.
+Required if you ran **rc.2** (or earlier) through the soak. The engine is already on the correct live snapshot; only the **integration-owned cumulatives** are poisoned (used / unused / shared / expected / import / export / billable, processed/skipped counters, ideal-share history, and ALC mopped/overshoot/undershoot).
 
-This does **not** change Oddajnik/Prejemnik source meters. It does **not** reinitialize the baseline. ALC mopped/overshoot/undershoot counters are in-memory and already reset on HA restart.
+This does **not** change Oddajnik/Prejemnik source meters. It does **not** reinitialize the baseline.
 
 #### UI
 
@@ -44,7 +51,7 @@ target:
 - Reset totals after the first restart (steps above).
 - Confirm cumulative shared ≈ cumulative expected at 7% (they should track again).
 - Watch logs around remote/MQTT reconnects: a 0-flash should `retrying:counter_reset` and recover, not add hundreds of kWh.
-- Confirm ALC still turns owned boilers off at interval end after a switch attribute update.
+- Confirm ALC still turns owned boilers off at interval end after a switch reconnect or attribute update.
 
 ### Install
 
