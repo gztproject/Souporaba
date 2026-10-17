@@ -10,6 +10,7 @@ A brief `0` flash on a mirrored shared-energy counter was treated as a real mete
 - If a reset was already committed and the old total comes back, skip that jump (do not accumulate it).
 - Skip physically impossible interval jumps (above 100 kW continuous).
 - Count missed intervals once (no extra +1 on the failure record).
+- Fix Energy Sharing actions on Home Assistant 2026.10 (`ServiceCall` has no `.target`). **Reset totals** and the other device actions no longer fail with Unknown error.
 
 ### Also in this RC
 

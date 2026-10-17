@@ -231,5 +231,16 @@
     "source_counter_reset": "Ponastavitev števca",
     "reconciliation_warning": "Opozorilo usklajevanja",
     "interval_skipped": "Interval preskočen"
+  },
+  "exceptions": {
+    "confirmation_required": {
+      "message": "Pred ponastavitvijo seštevkov vklopite Potrdi ponastavitev."
+    },
+    "config_entry_not_found": {
+      "message": "Za to dejanje ni bilo mogoče najti naprave Energy Sharing."
+    },
+    "active_loads_not_configured": {
+      "message": "Aktivna bremena niso nastavljena."
+    }
   }
 }

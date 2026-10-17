@@ -231,5 +231,16 @@
     "source_counter_reset": "Source counter reset",
     "reconciliation_warning": "Reconciliation warning",
     "interval_skipped": "Interval skipped"
+  },
+  "exceptions": {
+    "confirmation_required": {
+      "message": "Turn on Confirm reset before resetting totals."
+    },
+    "config_entry_not_found": {
+      "message": "Could not find the Energy Sharing device for this action."
+    },
+    "active_loads_not_configured": {
+      "message": "No active loads are configured."
+    }
   }
 }

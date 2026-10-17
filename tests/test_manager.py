@@ -17,6 +17,7 @@ from custom_components.energy_sharing.const import (
     CONF_ALLOCATION_TOLERANCE_KWH,
     CONF_ALLOCATION_TOLERANCE_PCT,
     CONF_RECONCILIATION_FAILURE_MODE,
+    DOMAIN,
     EXPORT_TYPE_INFERRED,
     EXPORT_TYPE_MEASURED,
     MODE_EXPORT_AND_PERCENTAGE,
@@ -26,9 +27,12 @@ from custom_components.energy_sharing.const import (
     RECONCILIATION_MISMATCH_WARN,
     RECONCILIATION_MODE_SKIP_INTERVAL,
     RECONCILIATION_MODE_WARN,
+    SERVICE_CONFIRM,
+    SERVICE_RESET_TOTALS,
     STORAGE_KEY,
     STORAGE_VERSION,
 )
+from custom_components.energy_sharing.manager import service_call_device_ids
 from tests.conftest import set_cumulative_sources
 
 
@@ -685,3 +689,58 @@ async def test_calibrate_active_loads_requires_configured_loads(
     manager = setup_percentage_only.runtime_data.manager
     with pytest.raises(HomeAssistantError, match="active_loads_not_configured"):
         await manager.async_calibrate_active_loads()
+
+
+def test_service_call_device_ids_without_target_attr() -> None:
+    """HA 2026.10 ServiceCall has data only; accessing .target must not raise."""
+
+    class _Call2026:
+        def __init__(self) -> None:
+            self.data = {"confirm": True, "device_id": ["abc"]}
+
+    assert service_call_device_ids(_Call2026()) == ["abc"]
+
+    class _CallNoDevice:
+        def __init__(self) -> None:
+            self.data = {"confirm": True}
+
+    assert service_call_device_ids(_CallNoDevice()) == []
+
+    class _CallLegacyTarget:
+        def __init__(self) -> None:
+            self.data = {}
+            self.target = {"device_id": ["legacy"]}
+
+    assert service_call_device_ids(_CallLegacyTarget()) == ["legacy"]
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_reset_totals_service_works_without_call_target(
+    hass: HomeAssistant,
+    setup_percentage_only: MockConfigEntry,
+) -> None:
+    manager = setup_percentage_only.runtime_data.manager
+    manager.data.cumulative_unused = 12.3
+    manager.data.cumulative_shared_energy = 411.6
+    await hass.services.async_call(
+        DOMAIN,
+        SERVICE_RESET_TOTALS,
+        {SERVICE_CONFIRM: True},
+        blocking=True,
+    )
+    assert manager.data.cumulative_unused == 0.0
+    assert manager.data.cumulative_shared_energy == 0.0
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_reset_totals_service_requires_confirm(
+    hass: HomeAssistant,
+    setup_percentage_only: MockConfigEntry,
+) -> None:
+    with pytest.raises(HomeAssistantError, match="confirmation_required"):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_RESET_TOTALS,
+            {},
+            blocking=True,
+        )

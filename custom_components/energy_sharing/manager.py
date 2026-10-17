@@ -211,6 +211,37 @@ class _CounterRestoreError(Exception):
         self.reason = reason
 
 
+def service_call_device_ids(call: Any) -> list[str]:
+    """Return device ids from a service call.
+
+    Home Assistant 2026.10 ServiceCall has no ``target`` attribute; device
+    targets are in ``call.data['device_id']``. Older cores may still expose
+    ``call.target``.
+    """
+    raw: Any = None
+    target = getattr(call, "target", None)
+    if isinstance(target, dict):
+        raw = target.get("device_id")
+    if not raw:
+        data = getattr(call, "data", None)
+        if isinstance(data, dict):
+            raw = data.get("device_id")
+    if isinstance(raw, str):
+        return [raw] if raw else []
+    if isinstance(raw, (list, tuple, set)):
+        return [str(item) for item in raw if item]
+    return []
+
+
+def _service_error(key: str) -> HomeAssistantError:
+    """Return a translated service error with a readable fallback message."""
+    return HomeAssistantError(
+        key,
+        translation_domain=DOMAIN,
+        translation_key=key,
+    )
+
+
 class EnergySharingManager:
     """Manage internal interval settlement, persistence, and scheduling."""
 
@@ -451,30 +482,30 @@ class EnergySharingManager:
         async def process_now_service(call: Any) -> None:
             entry = await self._resolve_entry_from_service(call)
             if entry is None:
-                raise HomeAssistantError("config_entry_not_found")
+                raise _service_error("config_entry_not_found")
             result = await entry.runtime_data.manager.async_process_now()
             _LOGGER.info("process_now result for %s: %s", entry.title, result)
 
         async def reset_totals_service(call: Any) -> None:
             if not call.data.get(SERVICE_CONFIRM):
-                raise HomeAssistantError("confirmation_required")
+                raise _service_error("confirmation_required")
             entry = await self._resolve_entry_from_service(call)
             if entry is None:
-                raise HomeAssistantError("config_entry_not_found")
+                raise _service_error("config_entry_not_found")
             await entry.runtime_data.manager.async_reset_totals()
             _LOGGER.info("Cumulative totals reset for %s", entry.title)
 
         async def reinitialize_baseline_service(call: Any) -> None:
             entry = await self._resolve_entry_from_service(call)
             if entry is None:
-                raise HomeAssistantError("config_entry_not_found")
+                raise _service_error("config_entry_not_found")
             result = await entry.runtime_data.manager.async_reinitialize_baseline()
             _LOGGER.info("reinitialize_baseline result for %s: %s", entry.title, result)
 
         async def calibrate_loads_service(call: Any) -> None:
             entry = await self._resolve_entry_from_service(call)
             if entry is None:
-                raise HomeAssistantError("config_entry_not_found")
+                raise _service_error("config_entry_not_found")
             result = await entry.runtime_data.manager.async_calibrate_active_loads()
             _LOGGER.info("calibrate_loads result for %s: %s", entry.title, result)
 
@@ -502,7 +533,7 @@ class EnergySharingManager:
         async def export_analysis_pack_service(call: Any) -> dict[str, Any]:
             entry = await self._resolve_entry_from_service(call)
             if entry is None:
-                raise HomeAssistantError("config_entry_not_found")
+                raise _service_error("config_entry_not_found")
             payload: dict[str, Any] = (
                 await entry.runtime_data.manager.async_export_analysis_pack(
                     period=call.data.get(CONF_EXPORT_PERIOD, DEFAULT_EXPORT_PERIOD),
@@ -524,9 +555,7 @@ class EnergySharingManager:
     async def _resolve_entry_from_service(
         self, call: Any
     ) -> EnergySharingConfigEntry | None:
-        device_ids: list[str] | None = None
-        if call.target:
-            device_ids = call.target.get("device_id")
+        device_ids = service_call_device_ids(call)
         if not device_ids:
             return self.entry
 
