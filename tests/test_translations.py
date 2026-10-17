@@ -22,6 +22,9 @@ def test_translation_files_contain_required_keys() -> None:
         ("entity", "sensor", "receiver_import_last_interval", "name"),
         ("entity", "sensor", "processing_status", "name"),
         ("services", "reinitialize_baseline", "name"),
+        ("services", "export_analysis_pack", "name"),
+        ("entity", "number", "fixed_allocation_percentage", "name"),
+        ("entity", "sensor", "recommended_share_conservative", "name"),
         ("status", "initializing_baseline"),
     ]
 

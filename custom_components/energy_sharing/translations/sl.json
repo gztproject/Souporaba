@@ -53,7 +53,33 @@
           "provider_timestamp_attr": "Atribut časovnega žiga izvoza (neobvezno)",
           "allocation_tolerance_kwh": "Toleranca usklajevanja dodelitve (kWh)",
           "allocation_tolerance_pct": "Toleranca usklajevanja dodelitve (%)",
-          "reconciliation_failure_mode": "Način ob neuspešnem usklajevanju"
+          "reconciliation_failure_mode": "Način ob neuspešnem usklajevanju",
+          "monthly_production_jan": "Statistična proizvodnja januar (neobvezno)",
+          "monthly_production_feb": "Statistična proizvodnja februar (neobvezno)",
+          "monthly_production_mar": "Statistična proizvodnja marec (neobvezno)",
+          "monthly_production_apr": "Statistična proizvodnja april (neobvezno)",
+          "monthly_production_may": "Statistična proizvodnja maj (neobvezno)",
+          "monthly_production_jun": "Statistična proizvodnja junij (neobvezno)",
+          "monthly_production_jul": "Statistična proizvodnja julij (neobvezno)",
+          "monthly_production_aug": "Statistična proizvodnja avgust (neobvezno)",
+          "monthly_production_sep": "Statistična proizvodnja september (neobvezno)",
+          "monthly_production_oct": "Statistična proizvodnja oktober (neobvezno)",
+          "monthly_production_nov": "Statistična proizvodnja november (neobvezno)",
+          "monthly_production_dec": "Statistična proizvodnja december (neobvezno)"
+        },
+        "data_description": {
+          "monthly_production_jan": "Neobvezen mesečni kWh ali relativni donos. Zamenja vgrajeno slovensko krivuljo za ta mesec. Uporabljajo se samo razmerja med meseci.",
+          "monthly_production_feb": "Neobvezen mesečni kWh ali relativni donos za februar.",
+          "monthly_production_mar": "Neobvezen mesečni kWh ali relativni donos za marec.",
+          "monthly_production_apr": "Neobvezen mesečni kWh ali relativni donos za april.",
+          "monthly_production_may": "Neobvezen mesečni kWh ali relativni donos za maj.",
+          "monthly_production_jun": "Neobvezen mesečni kWh ali relativni donos za junij.",
+          "monthly_production_jul": "Neobvezen mesečni kWh ali relativni donos za julij.",
+          "monthly_production_aug": "Neobvezen mesečni kWh ali relativni donos za avgust.",
+          "monthly_production_sep": "Neobvezen mesečni kWh ali relativni donos za september.",
+          "monthly_production_oct": "Neobvezen mesečni kWh ali relativni donos za oktober.",
+          "monthly_production_nov": "Neobvezen mesečni kWh ali relativni donos za november.",
+          "monthly_production_dec": "Neobvezen mesečni kWh ali relativni donos za december."
         }
       }
       ,
@@ -73,11 +99,23 @@
         "reconciliation_mode_warn": "Opozori in obdelaj z dejansko souporabo",
         "reconciliation_mode_skip_interval": "Preskoči interval"
       }
+    },
+    "export_period": {
+      "options": {
+        "last_7_days": "Zadnjih 7 dni",
+        "last_month": "Prejšnji koledarski mesec",
+        "this_month": "Ta mesec do zdaj",
+        "this_year": "To leto do zdaj",
+        "custom": "Poljubno obdobje"
+      }
     }
   },
   "entity": {
     "button": {
       "calibrate_active_loads": {"name": "Umeri aktivna bremena"}
+    },
+    "number": {
+      "fixed_allocation_percentage": {"name": "Fiksni odstotek dodelitve"}
     },
     "sensor": {
       "receiver_import_last_interval": {"name": "Omrežni prevzem prejemnika (zadnji interval)"},
@@ -131,7 +169,9 @@
       "active_load_tracking_error_wh": {"name": "Napaka sledenja bremen (kWh)"},
       "active_load_cumulative_mopped_up_wh": {"name": "Skupna pokrita energija aktivnih bremen (kWh)"},
       "active_load_cumulative_overshoot_wh": {"name": "Skupna prekoračitev aktivnih bremen (kWh)"},
-      "active_load_cumulative_undershoot_wh": {"name": "Skupni primanjkljaj aktivnih bremen (kWh)"}
+      "active_load_cumulative_undershoot_wh": {"name": "Skupni primanjkljaj aktivnih bremen (kWh)"},
+      "recommended_share_conservative": {"name": "Priporočen delež (konzervativno)"},
+      "recommended_share_optimistic": {"name": "Priporočen delež (optimistično)"}
     }
   },
   "services": {
@@ -156,6 +196,28 @@
     "calibrate_loads": {
       "name": "Umeri aktivna bremena",
       "description": "Zaporedno vzorči nastavljena aktivna bremena in inicializira ocene izmerjene moči."
+    },
+    "export_analysis_pack": {
+      "name": "Izvozi analitični paket",
+      "description": "Zapiše 15-minutne obračune, dnevno energijo oddajnika, aktivna bremena in priporočilo za naslednji mesec v Media → Local → energy_sharing.",
+      "fields": {
+        "period": {
+          "name": "Obdobje",
+          "description": "Poimenovano obdobje izvoza. Za poljubno obdobje uporabite custom ter začetek in konec."
+        },
+        "start": {
+          "name": "Začetek",
+          "description": "Začetek poljubnega obdobja izvoza."
+        },
+        "end": {
+          "name": "Konec",
+          "description": "Konec poljubnega obdobja izvoza."
+        },
+        "target_month": {
+          "name": "Ciljni mesec",
+          "description": "Neobvezen ciljni mesec za Moj Elektro v obliki LLLL-MM."
+        }
+      }
     }
   },
   "status": {

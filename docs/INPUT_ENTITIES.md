@@ -28,7 +28,7 @@ Example entity IDs (placeholders — use your own sensor names):
 | Prejemnik (Receiver) total grid import | `sensor.receiver_grid_import_total` |
 | Total received shared energy | `sensor.receiver_shared_energy_total` |
 | Oddajnik (Provider) total grid export | `sensor.provider_grid_export_total` |
-| Fixed allocation percentage | `7.0` in integration options |
+| Fixed allocation percentage | `7.0` in the device Number entity or integration options |
 
 Slovenian installations often use similar names, for example `sensor.prejemnik_skupni_prevzem` and `sensor.oddajnik_skupni_izvoz`.
 
@@ -153,6 +153,21 @@ For advanced setups, you may configure an attribute name that contains the sourc
 
 Prejemnik (Receiver) total import and shared energy total are identity settings in the config entry. Changing them requires removing and re-adding the integration, or using a dedicated reconfigure flow if available.
 
-Oddajnik (Provider) export source, fixed percentage, timing, tolerances, and timestamp attributes can be changed in the options flow. After major source changes, use **Reinitialize baseline** if needed.
+Oddajnik (Provider) export source, fixed percentage, timing, tolerances, timestamp attributes, and optional monthly production factors can be changed in the options flow. After major source changes, use **Reinitialize baseline** if needed.
+
+## Monthly allocation and analysis export
+
+Change the contractual % each month with the **Fixed allocation percentage** number on the integration device. That writes `fixed_allocation_percentage` in options immediately.
+
+Use `energy_sharing.export_analysis_pack` to dump a selected period:
+
+- `settlement_intervals.csv` — 15-minute Oddajnik export, Prejemnik import, shared energy, unused shared
+- `energy.csv` — daily Oddajnik export and shared energy (export after sharing, YTD). Production and Oddajnik import are not inputs, so this is **not** a full EZ-1 net-metering reserve
+- `active_loads.csv` — load energy, mop-up, and `idle_latched` (tank full) when the interval archive has snapshots
+- `next_month_share.csv` — conservative (house load, ≤5% unused) and optimistic (ALC mop-up except full tanks, ≤15% unused) recommended % for the next Moj Elektro month, scaled by the statistical monthly production curve
+
+The pack is written under the authenticated Media folder (`energy_sharing/`), not `/config/www`.
+
+Optional Options fields `monthly_production_jan`…`dec` replace the built-in mid-Slovenia relative monthly PV factors. Absolute kWh or relative shares both work; only month-to-month ratios are used.
 
 For regulatory background, eligibility, omrežnina vs energy billing, and the calibration workflow, see [REGULATORY_CONTEXT.md](REGULATORY_CONTEXT.md).

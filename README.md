@@ -25,7 +25,7 @@ Review interval and cumulative sensors (`ideal_share_last_interval`, `required_s
 
 ### Phase 2 — Tune each month after go-live
 
-Keep the integration running. Each month, compare registered sharing against real intervals and adjust the percentage for the **next** month in **Moj Elektro** (submit by the **10th** for effect on the **1st** of the following month). When you change the registered share, update `fixed_allocation_percentage` in integration options.
+Keep the integration running. Each month, compare registered sharing against real intervals and adjust the percentage for the **next** month in **Moj Elektro** (submit by the **10th** for effect on the **1st** of the following month). When you change the registered share, update the **Fixed allocation percentage** number on the device (or the same field in Options).
 
 The integration **recommends and monitors**; you **register and confirm** sharing in Moj Elektro.
 
@@ -143,7 +143,11 @@ Actual implementation always uses measured power values from sensors; these nomi
 - `energy_sharing.reset_totals` — reset integration-owned cumulative totals (requires `confirm: true`)
 - `energy_sharing.reinitialize_baseline` — record current source totals as a fresh baseline
 - `energy_sharing.calibrate_loads` — sequentially sample active loads to establish starting power estimates
+- `energy_sharing.export_analysis_pack` — write a period-selectable CSV pack (15-minute settlement, daily Oddajnik `energy.csv`, active loads if archived, and next-month conservative/optimistic share %) to **Media → Local → energy_sharing** (or `config/energy_sharing_exports` if Media is not configured). Files are not published on unauthenticated `/local/`.
 - Device button: **Calibrate active loads** — available on the integration device page and triggers the same calibration flow
+- Config number: **Fixed allocation percentage** — monthly Moj Elektro % without opening the full Options form
+
+`recommended_share_conservative` and `recommended_share_optimistic` estimate the next month's % from archived 15-minute intervals and a statistical monthly production curve (built-in mid-Slovenia factors, optional 12-month override in Options). Submit the chosen % in Moj Elektro by the **10th**; the sensors only recommend.
 
 ## Migration from earlier versions
 

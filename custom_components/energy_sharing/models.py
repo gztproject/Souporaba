@@ -9,6 +9,9 @@ from typing import Any
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    COUNTER_RESTORE_ABS_TOLERANCE_KWH,
+    COUNTER_RESTORE_REL_TOLERANCE,
+    DEFAULT_MAX_PLAUSIBLE_INTERVAL_POWER_W,
     EXPORT_TYPE_INFERRED,
     EXPORT_TYPE_MEASURED,
     EXPORT_TYPE_NONE,
@@ -650,6 +653,53 @@ def calculate_interval_delta(
     if current_total >= previous_total:
         return current_total - previous_total, False
     return None, True
+
+
+def max_plausible_interval_kwh(
+    interval_minutes: int,
+    max_power_w: float = DEFAULT_MAX_PLAUSIBLE_INTERVAL_POWER_W,
+) -> float:
+    """Return an upper bound for energy in one settlement interval."""
+    minutes = max(int(interval_minutes), 1)
+    return max(max_power_w, 0.0) * (minutes / 60.0) / 1000.0
+
+
+def looks_like_counter_restore(
+    current_total: float,
+    snapshot_total: float,
+    reset: SourceResetRecord | None,
+    source_key: str,
+) -> bool:
+    """Return True when a post-reset jump is a glitch restore, not new energy.
+
+    Remote/MQTT sources can flash 0, get committed as a reset, then restore to
+    the previous total. The next interval would otherwise accumulate the whole
+    restored counter as shared/import/export energy.
+    """
+    if reset is None or reset.source_key != source_key:
+        return False
+
+    previous = reset.previous_total_kwh
+    new = reset.new_total_kwh
+    if previous <= new:
+        return False
+
+    snap_tol = max(
+        COUNTER_RESTORE_ABS_TOLERANCE_KWH,
+        abs(new) * COUNTER_RESTORE_REL_TOLERANCE,
+    )
+    if abs(snapshot_total - new) > snap_tol:
+        return False
+
+    restore_tol = max(
+        COUNTER_RESTORE_ABS_TOLERANCE_KWH, previous * COUNTER_RESTORE_REL_TOLERANCE
+    )
+    if abs(current_total - previous) <= restore_tol:
+        return True
+
+    drop = previous - new
+    jump = current_total - snapshot_total
+    return drop >= 1.0 and jump >= 0.9 * drop
 
 
 def calculate_settlement(

@@ -493,6 +493,27 @@ class ActiveLoadController:
         positives = [value for value in values if value > 0]
         return min(positives) if positives else 0.0
 
+    def get_interval_archive_snapshot(self, interval_id: str) -> dict[str, Any] | None:
+        """Capture per-load energy and tank-full flags for the archive."""
+        if self._interval.interval_id != interval_id:
+            return None
+        return {
+            "mopped_wh": max(self._interval.measured_total_wh, 0.0),
+            "loads": [
+                {
+                    "switch_entity_id": load.config.switch_entity_id,
+                    "energy_wh": load.interval_energy_wh,
+                    "target_wh": load.allocated_target_wh,
+                    "idle_latched": bool(
+                        self._interval.interval_id
+                        and load.idle_latched_until_interval_id
+                        == self._interval.interval_id
+                    ),
+                }
+                for load in self._loads
+            ],
+        }
+
     @staticmethod
     def _predict_unused_budget_wh(
         *,

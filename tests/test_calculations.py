@@ -14,6 +14,7 @@ from custom_components.energy_sharing.const import (
     MODE_PERCENTAGE_ONLY,
 )
 from custom_components.energy_sharing.models import (
+    SourceResetRecord,
     StorageData,
     append_ideal_share_history_sample,
     calculate_ideal_share_excluding_active_loads_pct,
@@ -23,6 +24,8 @@ from custom_components.energy_sharing.models import (
     compute_ideal_share_window_average,
     evaluate_reconciliation,
     is_ideal_share_stats_eligible,
+    looks_like_counter_restore,
+    max_plausible_interval_kwh,
     migrate_storage,
     resolve_operating_mode,
 )
@@ -44,6 +47,28 @@ def test_calculate_interval_delta_reset() -> None:
     delta, reset = calculate_interval_delta(5.0, 100.0)
     assert delta is None
     assert reset is True
+
+
+def test_max_plausible_interval_kwh() -> None:
+    assert max_plausible_interval_kwh(15) == pytest.approx(25.0)
+
+
+def test_looks_like_counter_restore_matches_soak_glitch() -> None:
+    reset = SourceResetRecord(
+        timestamp=datetime(2026, 9, 3, 19, 45, 10, tzinfo=UTC),
+        source_key="shared_energy",
+        entity_id="sensor.shared",
+        previous_total_kwh=411.60623,
+        new_total_kwh=0.0,
+        interval_id="x",
+    )
+    assert looks_like_counter_restore(411.60623, 0.0, reset, "shared_energy") is True
+    assert looks_like_counter_restore(0.02, 0.0, reset, "shared_energy") is False
+    assert looks_like_counter_restore(411.60623, 0.0, reset, "receiver_import") is False
+    assert (
+        looks_like_counter_restore(411.60623, 411.60623, reset, "shared_energy")
+        is False
+    )
 
 
 def test_percentage_only_mode_seven_percent() -> None:

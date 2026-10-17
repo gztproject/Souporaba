@@ -50,6 +50,7 @@ class EnergySharingSensorDescription(SensorEntityDescription):
     provider_only: bool = False
     export_and_percentage_only: bool = False
     fixed_percentage_only: bool = False
+    recommendation: bool = False
 
 
 def _interval_energy_sensors() -> tuple[EnergySharingSensorDescription, ...]:
@@ -219,6 +220,22 @@ def _interval_percent_sensors() -> tuple[EnergySharingSensorDescription, ...]:
             icon="mdi:compare",
             value_key="allocation_difference_pct",
             export_and_percentage_only=True,
+        ),
+        EnergySharingSensorDescription(
+            key="recommended_share_conservative",
+            translation_key="recommended_share_conservative",
+            native_unit_of_measurement=PERCENTAGE,
+            state_class=SensorStateClass.MEASUREMENT,
+            icon="mdi:percent-outline",
+            recommendation=True,
+        ),
+        EnergySharingSensorDescription(
+            key="recommended_share_optimistic",
+            translation_key="recommended_share_optimistic",
+            native_unit_of_measurement=PERCENTAGE,
+            state_class=SensorStateClass.MEASUREMENT,
+            icon="mdi:percent",
+            recommendation=True,
         ),
     )
 
@@ -632,6 +649,23 @@ class EnergySharingSensor(SensorEntity):
         if description.key == "last_processed_interval_id":
             self._attr_native_value = data.last_processed_interval_id
             self._attr_available = True
+            return
+
+        if description.recommendation:
+            rec = self._manager.get_recommendation()
+            if rec is None:
+                self._attr_native_value = None
+                self._attr_available = False
+                self._attr_extra_state_attributes = {}
+                return
+            value = (
+                rec.conservative_pct
+                if description.key == "recommended_share_conservative"
+                else rec.optimistic_pct
+            )
+            self._attr_native_value = value
+            self._attr_available = value is not None
+            self._attr_extra_state_attributes = rec.to_dict()
             return
 
         if description.key in {

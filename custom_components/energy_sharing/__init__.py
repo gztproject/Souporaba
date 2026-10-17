@@ -10,7 +10,7 @@ from .const import DOMAIN as DOMAIN
 from .manager import EnergySharingManager
 from .models import EnergySharingRuntimeData
 
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BUTTON]
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BUTTON, Platform.NUMBER]
 
 type EnergySharingConfigEntry = ConfigEntry[EnergySharingRuntimeData]
 

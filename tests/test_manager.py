@@ -105,6 +105,9 @@ async def test_next_boundary_calculates_deltas(
     last = manager.data.last_interval
     assert last.receiver_import_interval_kwh == pytest.approx(1.0)
     assert last.shared_energy_interval_kwh == pytest.approx(0.7)
+    assert len(manager.archive.intervals) == 1
+    assert manager.archive.intervals[0].receiver_import_kwh == pytest.approx(1.0)
+    assert manager.get_recommendation() is not None
 
 
 @freeze_time("2026-07-12 15:00:10+02:00")
@@ -220,7 +223,12 @@ async def test_receiver_counter_reset(
         receiver_total=50.0,
         shared_total=11.0,
     )
-    result = await manager.async_process_now()
+    pending = await manager.async_process_now()
+    assert pending.startswith("retrying:counter_reset:receiver_import")
+    assert manager.data.source_reset_count == 0
+
+    with freeze_time("2026-07-12 15:01:15+02:00"):
+        result = await manager.async_process_now()
     assert result.startswith("skipped:counter_reset:receiver_import")
     assert manager.data.source_reset_count == 1
 
@@ -241,8 +249,137 @@ async def test_shared_counter_reset(
         receiver_total=101.0,
         shared_total=5.0,
     )
-    result = await manager.async_process_now()
+    pending = await manager.async_process_now()
+    assert pending.startswith("retrying:counter_reset:shared_energy")
+
+    with freeze_time("2026-07-12 15:01:15+02:00"):
+        result = await manager.async_process_now()
     assert result.startswith("skipped:counter_reset:shared_energy")
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_transient_zero_glitch_does_not_reset_or_accumulate(
+    hass: HomeAssistant,
+    setup_percentage_only: MockConfigEntry,
+    receiver_import_total_entity: str,
+    shared_energy_total_entity: str,
+) -> None:
+    manager = setup_percentage_only.runtime_data.manager
+    await manager.async_process_now()
+
+    with freeze_time("2026-07-12 15:15:10+02:00"):
+        set_cumulative_sources(
+            hass,
+            receiver_import_total_entity=receiver_import_total_entity,
+            shared_energy_total_entity=shared_energy_total_entity,
+            receiver_total=101.0,
+            shared_total=0.0,
+        )
+        pending = await manager.async_process_now()
+        assert pending.startswith("retrying:counter_reset:shared_energy")
+        assert manager.data.source_reset_count == 0
+
+        set_cumulative_sources(
+            hass,
+            receiver_import_total_entity=receiver_import_total_entity,
+            shared_energy_total_entity=shared_energy_total_entity,
+            receiver_total=101.0,
+            shared_total=10.7,
+        )
+        result = await manager.async_process_now()
+
+    assert result == "processed"
+    assert manager.data.source_reset_count == 0
+    assert manager.data.cumulative_shared_energy == pytest.approx(0.7)
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_restore_after_committed_reset_does_not_accumulate(
+    hass: HomeAssistant,
+    setup_percentage_only: MockConfigEntry,
+    receiver_import_total_entity: str,
+    shared_energy_total_entity: str,
+) -> None:
+    manager = setup_percentage_only.runtime_data.manager
+    await manager.async_process_now()
+
+    with freeze_time("2026-07-12 15:15:10+02:00"):
+        set_cumulative_sources(
+            hass,
+            receiver_import_total_entity=receiver_import_total_entity,
+            shared_energy_total_entity=shared_energy_total_entity,
+            receiver_total=101.0,
+            shared_total=0.0,
+        )
+        assert (await manager.async_process_now()).startswith(
+            "retrying:counter_reset:shared_energy"
+        )
+
+    with freeze_time("2026-07-12 15:16:15+02:00"):
+        result = await manager.async_process_now()
+    assert result.startswith("skipped:counter_reset:shared_energy")
+    assert manager.data.source_reset_count == 1
+    assert manager.data.cumulative_shared_energy == pytest.approx(0.0)
+
+    with freeze_time("2026-07-12 15:30:10+02:00"):
+        set_cumulative_sources(
+            hass,
+            receiver_import_total_entity=receiver_import_total_entity,
+            shared_energy_total_entity=shared_energy_total_entity,
+            receiver_total=102.0,
+            shared_total=10.0,
+        )
+        restore = await manager.async_process_now()
+    assert restore.startswith("skipped:counter_restore:shared_energy")
+    assert manager.data.cumulative_shared_energy == pytest.approx(0.0)
+
+    with freeze_time("2026-07-12 15:45:10+02:00"):
+        set_cumulative_sources(
+            hass,
+            receiver_import_total_entity=receiver_import_total_entity,
+            shared_energy_total_entity=shared_energy_total_entity,
+            receiver_total=103.0,
+            shared_total=10.7,
+        )
+        processed = await manager.async_process_now()
+    assert processed == "processed"
+    assert manager.data.last_interval.shared_energy_interval_kwh == pytest.approx(0.7)
+    assert manager.data.cumulative_shared_energy == pytest.approx(0.7)
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_missed_intervals_are_counted_once(
+    hass: HomeAssistant,
+    setup_percentage_only: MockConfigEntry,
+    receiver_import_total_entity: str,
+    shared_energy_total_entity: str,
+) -> None:
+    manager = setup_percentage_only.runtime_data.manager
+    await manager.async_process_now()
+
+    with freeze_time("2026-07-12 15:15:10+02:00"):
+        set_cumulative_sources(
+            hass,
+            receiver_import_total_entity=receiver_import_total_entity,
+            shared_energy_total_entity=shared_energy_total_entity,
+            receiver_total=101.0,
+            shared_total=10.7,
+        )
+        assert await manager.async_process_now() == "processed"
+
+    with freeze_time("2026-07-12 15:45:10+02:00"):
+        set_cumulative_sources(
+            hass,
+            receiver_import_total_entity=receiver_import_total_entity,
+            shared_energy_total_entity=shared_energy_total_entity,
+            receiver_total=103.0,
+            shared_total=12.1,
+        )
+        assert await manager.async_process_now() == "processed"
+
+    assert manager.data.skipped_intervals == 1
+    assert manager.data.last_failure is not None
+    assert manager.data.last_failure.reason == "missed_intervals:1"
 
 
 @freeze_time("2026-07-12 15:00:10+02:00")

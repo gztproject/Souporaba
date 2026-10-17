@@ -15,6 +15,19 @@ CONF_SHARED_ENERGY_TOTAL_SOURCE: Final = "shared_energy_total_source"
 # Conditional sources (options)
 CONF_PROVIDER_EXPORT_TOTAL_SOURCE: Final = "provider_export_total_source"
 CONF_FIXED_ALLOCATION_PERCENTAGE: Final = "fixed_allocation_percentage"
+CONF_MONTHLY_PRODUCTION: Final = "monthly_production"
+CONF_MONTHLY_PRODUCTION_JAN: Final = "monthly_production_jan"
+CONF_MONTHLY_PRODUCTION_FEB: Final = "monthly_production_feb"
+CONF_MONTHLY_PRODUCTION_MAR: Final = "monthly_production_mar"
+CONF_MONTHLY_PRODUCTION_APR: Final = "monthly_production_apr"
+CONF_MONTHLY_PRODUCTION_MAY: Final = "monthly_production_may"
+CONF_MONTHLY_PRODUCTION_JUN: Final = "monthly_production_jun"
+CONF_MONTHLY_PRODUCTION_JUL: Final = "monthly_production_jul"
+CONF_MONTHLY_PRODUCTION_AUG: Final = "monthly_production_aug"
+CONF_MONTHLY_PRODUCTION_SEP: Final = "monthly_production_sep"
+CONF_MONTHLY_PRODUCTION_OCT: Final = "monthly_production_oct"
+CONF_MONTHLY_PRODUCTION_NOV: Final = "monthly_production_nov"
+CONF_MONTHLY_PRODUCTION_DEC: Final = "monthly_production_dec"
 CONF_ACTIVE_LOADS: Final = "active_loads"
 CONF_ACTIVE_LOAD_CONTROL_ENABLED: Final = "active_load_control_enabled"
 
@@ -89,6 +102,11 @@ DEFAULT_FIXED_ALLOCATION_PERCENTAGE: Final = 7.0
 DEFAULT_ALLOCATION_TOLERANCE_KWH: Final = 0.01
 DEFAULT_ALLOCATION_TOLERANCE_PCT: Final = 5.0
 DEFAULT_RECONCILIATION_FAILURE_MODE: Final = RECONCILIATION_MODE_WARN
+# 100 kW continuous over one interval is beyond any residential sharing site.
+# Used only as a restore/glitch rail, not as a configured option.
+DEFAULT_MAX_PLAUSIBLE_INTERVAL_POWER_W: Final = 100_000.0
+COUNTER_RESTORE_ABS_TOLERANCE_KWH: Final = 0.05
+COUNTER_RESTORE_REL_TOLERANCE: Final = 0.01
 DEFAULT_ACTIVE_LOADS: Final[list[dict[str, str | int | bool]]] = []
 DEFAULT_ACTIVE_LOAD_CONTROL_ENABLED: Final = True
 DEFAULT_ACTIVE_LOAD_CONTROL_TICK_SECONDS: Final = 5
@@ -128,12 +146,49 @@ MAX_ACTIVE_LOAD_CORRECTION_GAIN: Final = 1.0
 
 STORAGE_VERSION: Final = 7
 STORAGE_KEY: Final = "energy_sharing.storage"
+ARCHIVE_STORAGE_VERSION: Final = 1
+ARCHIVE_STORAGE_KEY: Final = "energy_sharing.interval_archive"
+ARCHIVE_RETENTION_DAYS: Final = 427
 
 SERVICE_PROCESS_NOW: Final = "process_now"
 SERVICE_RESET_TOTALS: Final = "reset_totals"
 SERVICE_REINITIALIZE_BASELINE: Final = "reinitialize_baseline"
 SERVICE_CALIBRATE_LOADS: Final = "calibrate_loads"
+SERVICE_EXPORT_ANALYSIS_PACK: Final = "export_analysis_pack"
 SERVICE_CONFIRM: Final = "confirm"
+
+PERIOD_LAST_7_DAYS: Final = "last_7_days"
+PERIOD_LAST_MONTH: Final = "last_month"
+PERIOD_THIS_MONTH: Final = "this_month"
+PERIOD_THIS_YEAR: Final = "this_year"
+PERIOD_CUSTOM: Final = "custom"
+DEFAULT_EXPORT_PERIOD: Final = PERIOD_LAST_MONTH
+
+CONF_EXPORT_PERIOD: Final = "period"
+CONF_EXPORT_START: Final = "start"
+CONF_EXPORT_END: Final = "end"
+CONF_EXPORT_TARGET_MONTH: Final = "target_month"
+
+MOJ_ELEKTRO_DEADLINE_DAY: Final = 10
+RECOMMEND_UNUSED_RATIO_CONSERVATIVE: Final = 0.05
+RECOMMEND_UNUSED_RATIO_OPTIMISTIC: Final = 0.15
+RECOMMEND_ROUND_DECIMALS: Final = 1
+RECOMMEND_MIN_DAYLIGHT_INTERVALS: Final = 7
+
+MONTHLY_PRODUCTION_OPTION_KEYS: Final = {
+    1: CONF_MONTHLY_PRODUCTION_JAN,
+    2: CONF_MONTHLY_PRODUCTION_FEB,
+    3: CONF_MONTHLY_PRODUCTION_MAR,
+    4: CONF_MONTHLY_PRODUCTION_APR,
+    5: CONF_MONTHLY_PRODUCTION_MAY,
+    6: CONF_MONTHLY_PRODUCTION_JUN,
+    7: CONF_MONTHLY_PRODUCTION_JUL,
+    8: CONF_MONTHLY_PRODUCTION_AUG,
+    9: CONF_MONTHLY_PRODUCTION_SEP,
+    10: CONF_MONTHLY_PRODUCTION_OCT,
+    11: CONF_MONTHLY_PRODUCTION_NOV,
+    12: CONF_MONTHLY_PRODUCTION_DEC,
+}
 
 # Processing statuses
 STATUS_INITIALIZING_BASELINE: Final = "initializing_baseline"

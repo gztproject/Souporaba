@@ -32,3 +32,41 @@ calibrate_loads:
   target:
     device:
       integration: energy_sharing
+
+export_analysis_pack:
+  name: Export analysis pack
+  description: Write 15-minute settlement, daily donor energy, active-load, and next-month share CSVs to the Media folder (or config/energy_sharing_exports).
+  target:
+    device:
+      integration: energy_sharing
+  fields:
+    period:
+      name: Period
+      description: Named range to export. Use custom together with start and end.
+      default: last_month
+      selector:
+        select:
+          translation_key: export_period
+          options:
+            - last_7_days
+            - last_month
+            - this_month
+            - this_year
+            - custom
+          mode: dropdown
+    start:
+      name: Start
+      description: Start of a custom export period (ignored unless period is custom).
+      selector:
+        datetime:
+    end:
+      name: End
+      description: End of a custom export period (ignored unless period is custom).
+      selector:
+        datetime:
+    target_month:
+      name: Target month
+      description: Optional Moj Elektro target month as YYYY-MM (defaults to next calendar month).
+      example: "2026-11"
+      selector:
+        text:

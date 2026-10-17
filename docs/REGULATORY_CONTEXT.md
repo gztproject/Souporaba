@@ -90,6 +90,7 @@ Integracija **priporoča in spremlja**; vi **registrirate in potrjujete** soupor
 | `billable_energy_last_interval` | Energy still on supplier energy bill after sharing | Cost-relevant kWh check |
 | `allocation_utilization_last_interval` | How much of allocated share was consumed | Efficiency of chosen % |
 | `total_*` cumulative sensors | Month-level evidence for Moj Elektro % choice | Month-over-month comparison |
+| `recommended_share_conservative` / `recommended_share_optimistic` | Evidence-based next-month % from 15-minute data and the statistical production curve | Copy a chosen % into Moj Elektro by the 10th, then the allocation Number |
 
 | Senzor | Kalibracija (pred souporabo) | Tekoče (mesečna prilagoditev) |
 |--------|-------------------------------|-------------------------------|
@@ -100,6 +101,7 @@ Integracija **priporoča in spremlja**; vi **registrirate in potrjujete** soupor
 | `billable_energy_last_interval` | Energija na računu dobavitelja po souporabi | Preverjanje kWh |
 | `allocation_utilization_last_interval` | Koliko dodeljene souporabe je bilo porabljeno | Učinkovitost izbranega % |
 | `total_*` kumulativni senzorji | Mesečni dokazi za izbiro % v Moj Elektro | Primerjava med meseci |
+| `recommended_share_conservative` / `recommended_share_optimistic` | Predlog % za naslednji mesec iz 15-minutnih meritev in statistične krivulje proizvodnje | Izbrani % vnesite v Moj Elektro do 10., nato v številčni entiteti |
 
 ---
 
@@ -111,8 +113,9 @@ Integracija **priporoča in spremlja**; vi **registrirate in potrjujete** soupor
 2. **Not legal advice** — Eligibility, contracts, and registration are your responsibility.
 3. **Pre-go-live data** — Before official sharing, `shared_energy_total_source` may be simulated or zero; export + percentage mode with measured Oddajnik export is the recommended calibration setup.
 4. **Omrežnina** — Network charges and other levies use full meter import; only the energy commodity line is reduced by sharing.
-5. **Manual Moj Elektro step** — Changing the registered percentage requires the Moj Elektro portal (by the 10th of the month). The integration does not submit registrations.
+5. **Manual Moj Elektro step** — Changing the registered percentage requires the Moj Elektro portal (by the 10th of the month). The integration does not submit registrations. Recommended conservative/optimistic % are decision support only.
 6. **Single pair** — Does not model multiple Prejemniki or Organizator souporabe workflows.
+7. **Oddajnik net metering** — `energy.csv` uses grid export and shared energy only. Without Oddajnik production and import, remaining annual net-metering reserve cannot be computed.
 
 ### Slovenščina
 
@@ -120,8 +123,9 @@ Integracija **priporoča in spremlja**; vi **registrirate in potrjujete** soupor
 2. **Ni pravni nasvet** — Upravičenost, pogodbe in registracija so vaša odgovornost.
 3. **Podatki pred souporabo** — Pred uradno souporabo je `shared_energy_total_source` lahko simuliran ali nič; za kalibracijo priporočamo način izvoz + odstotek z izmerjenim izvozom oddajnika.
 4. **Omrežnina** — Omrežnina in drugi prispevki temeljijo na celotnem števčnem prevzemu; souporaba zniža samo postavko energije.
-5. **Ročni korak v Moj Elektro** — Sprememba registriranega odstotka poteka v portalu Moj Elektro (do 10. v mesecu). Integracija ne oddaja vlog.
+5. **Ročni korak v Moj Elektro** — Sprememba registriranega odstotka poteka v portalu Moj Elektro (do 10. v mesecu). Integracija ne oddaja vlog. Konzervativni/optimistični % so le predlog.
 6. **En par** — Ne modelira več prejemnikov ali vloge organizatorja souporabe.
+7. **Netiranje oddajnika** — `energy.csv` uporablja le izvoz in souporabo. Brez proizvodnje in prevzema oddajnika letne rezerve ni mogoče izračunati.
 
 ---
 

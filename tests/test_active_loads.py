@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from freezegun import freeze_time
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, State
 from homeassistant.util import dt as dt_util
 
 from custom_components.energy_sharing.active_loads import (
@@ -713,6 +714,63 @@ async def test_learning_persists_estimated_power(hass: HomeAssistant) -> None:
         controller._update_learning(load)  # noqa: SLF001
         await hass.async_block_till_done()
         assert manager._stored_estimates["switch.boiler_a"] == pytest.approx(1500.0)
+    finally:
+        await controller.async_unload()
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_attribute_update_keeps_owned_switch(hass: HomeAssistant) -> None:
+    manager = _FakeManager(
+        {
+            CONF_ACTIVE_LOADS: [
+                {
+                    CONF_ACTIVE_LOAD_SWITCH_ENTITY_ID: "switch.boiler_a",
+                    CONF_ACTIVE_LOAD_POWER_SENSOR_ENTITY_ID: "sensor.boiler_a_power",
+                }
+            ]
+        }
+    )
+    controller = ActiveLoadController(
+        hass,
+        manager,
+        [
+            ActiveLoadConfig(
+                switch_entity_id="switch.boiler_a",
+                power_sensor_entity_id="sensor.boiler_a_power",
+                priority=0,
+                enabled=True,
+            )
+        ],
+        interval_minutes=15,
+    )
+    await controller.async_setup()
+    try:
+        load = controller._loads[0]
+        load.owns_switch = True
+        controller._interval.interval_id = "interval"
+        controller._handle_switch_change(
+            SimpleNamespace(
+                data={
+                    "entity_id": "switch.boiler_a",
+                    "old_state": State("switch.boiler_a", "on"),
+                    "new_state": State("switch.boiler_a", "on"),
+                }
+            )
+        )
+        assert load.owns_switch is True
+        assert load.manually_excluded_until_interval_id is None
+
+        controller._handle_switch_change(
+            SimpleNamespace(
+                data={
+                    "entity_id": "switch.boiler_a",
+                    "old_state": State("switch.boiler_a", "on"),
+                    "new_state": State("switch.boiler_a", "off"),
+                }
+            )
+        )
+        assert load.owns_switch is False
+        assert load.manually_excluded_until_interval_id == "interval"
     finally:
         await controller.async_unload()
 

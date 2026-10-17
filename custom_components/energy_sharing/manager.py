@@ -9,7 +9,12 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.core import (
+    CALLBACK_TYPE,
+    HomeAssistant,
+    SupportsResponse,
+    callback,
+)
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.event import (
@@ -20,6 +25,7 @@ from homeassistant.helpers.event import (
 from homeassistant.util import dt as dt_util
 
 from .active_loads import ActiveLoadConfig, ActiveLoadController
+from .archive import IntervalArchive, archive_interval_from_result
 from .const import (
     BASELINE_INITIALIZED,
     BASELINE_NOT_INITIALIZED,
@@ -30,6 +36,10 @@ from .const import (
     CONF_ACTIVE_LOADS,
     CONF_ALLOCATION_TOLERANCE_KWH,
     CONF_ALLOCATION_TOLERANCE_PCT,
+    CONF_EXPORT_END,
+    CONF_EXPORT_PERIOD,
+    CONF_EXPORT_START,
+    CONF_EXPORT_TARGET_MONTH,
     CONF_FIXED_ALLOCATION_PERCENTAGE,
     CONF_INTERVAL_MINUTES,
     CONF_MAX_WAIT,
@@ -45,6 +55,7 @@ from .const import (
     CONF_SOURCE_FRESHNESS_TOLERANCE,
     DEFAULT_ALLOCATION_TOLERANCE_KWH,
     DEFAULT_ALLOCATION_TOLERANCE_PCT,
+    DEFAULT_EXPORT_PERIOD,
     DEFAULT_INTERVAL_MINUTES,
     DEFAULT_MAX_WAIT,
     DEFAULT_PROCESSING_DELAY,
@@ -62,6 +73,7 @@ from .const import (
     RECONCILIATION_NOT_CONFIGURED,
     SERVICE_CALIBRATE_LOADS,
     SERVICE_CONFIRM,
+    SERVICE_EXPORT_ANALYSIS_PACK,
     SERVICE_PROCESS_NOW,
     SERVICE_REINITIALIZE_BASELINE,
     SERVICE_RESET_TOTALS,
@@ -76,6 +88,27 @@ from .const import (
     STATUS_WAITING_FOR_SOURCES,
     STORAGE_KEY,
     STORAGE_VERSION,
+)
+from .export import (
+    ACTIVE_LOAD_FIELDS,
+    ENERGY_CSV_COMMENTS,
+    ENERGY_FIELDS,
+    NEXT_MONTH_COMMENTS,
+    NEXT_MONTH_FIELDS,
+    SETTLEMENT_FIELDS,
+    async_recorder_daily_energy,
+    async_recorder_interval_rows,
+    build_active_load_rows,
+    build_energy_rows,
+    build_manifest_text,
+    build_next_month_rows,
+    build_settlement_rows,
+    daily_energy_from_intervals,
+    merge_archive_and_recorder,
+    render_csv,
+    resolve_export_directory,
+    resolve_export_period,
+    write_export_pack,
 )
 from .helpers import (
     CumulativeSourceReading,
@@ -98,9 +131,17 @@ from .models import (
     calculate_settlement,
     compute_ideal_share_window_average,
     evaluate_reconciliation,
+    looks_like_counter_restore,
+    max_plausible_interval_kwh,
 )
 from .models import (
     resolve_operating_mode as _resolve_operating_mode,
+)
+from .recommend import (
+    ShareRecommendation,
+    observation_window,
+    recommend_next_month_share,
+    start_of_month,
 )
 from .storage import EnergySharingStore
 
@@ -151,6 +192,25 @@ class _CounterResetError(Exception):
         self.current = current
 
 
+class _CounterRestoreError(Exception):
+    """Raised when a post-reset jump looks like a glitch restore."""
+
+    def __init__(
+        self,
+        source_key: str,
+        entity_id: str,
+        previous: float,
+        current: float,
+        reason: str,
+    ):
+        super().__init__(source_key)
+        self.source_key = source_key
+        self.entity_id = entity_id
+        self.previous = previous
+        self.current = current
+        self.reason = reason
+
+
 class EnergySharingManager:
     """Manage internal interval settlement, persistence, and scheduling."""
 
@@ -162,7 +222,9 @@ class EnergySharingManager:
             STORAGE_VERSION,
             f"{STORAGE_KEY}.{entry.entry_id}",
         )
+        self.archive = IntervalArchive(hass, entry.entry_id)
         self.data = StorageData()
+        self._recommendation: ShareRecommendation | None = None
         self.status = STATUS_WAITING_FOR_BOUNDARY
         self._unsub_schedule: CALLBACK_TYPE | None = None
         self._retry_unsub: CALLBACK_TYPE | None = None
@@ -302,6 +364,9 @@ class EnergySharingManager:
                 self.data = StorageData()
                 await self.storage.async_save(self.data.to_dict())
 
+        await self.archive.async_load()
+        self.refresh_recommendation()
+
         device_registry = dr.async_get(self.hass)
         device_registry.async_get_or_create(
             config_entry_id=self.entry.entry_id,
@@ -434,6 +499,28 @@ class EnergySharingManager:
                 calibrate_loads_service,
             )
 
+        async def export_analysis_pack_service(call: Any) -> dict[str, Any]:
+            entry = await self._resolve_entry_from_service(call)
+            if entry is None:
+                raise HomeAssistantError("config_entry_not_found")
+            payload: dict[str, Any] = (
+                await entry.runtime_data.manager.async_export_analysis_pack(
+                    period=call.data.get(CONF_EXPORT_PERIOD, DEFAULT_EXPORT_PERIOD),
+                    start=call.data.get(CONF_EXPORT_START),
+                    end=call.data.get(CONF_EXPORT_END),
+                    target_month=call.data.get(CONF_EXPORT_TARGET_MONTH),
+                )
+            )
+            return payload
+
+        if not self.hass.services.has_service(DOMAIN, SERVICE_EXPORT_ANALYSIS_PACK):
+            self.hass.services.async_register(
+                DOMAIN,
+                SERVICE_EXPORT_ANALYSIS_PACK,
+                export_analysis_pack_service,
+                supports_response=SupportsResponse.OPTIONAL,
+            )
+
     async def _resolve_entry_from_service(
         self, call: Any
     ) -> EnergySharingConfigEntry | None:
@@ -522,8 +609,6 @@ class EnergySharingManager:
 
     async def _async_retry_processing(self) -> None:
         if self._retry_deadline is None:
-            return
-        if dt_util.utcnow() >= self._retry_deadline:
             return
         await self._async_process_latest("retry")
 
@@ -637,7 +722,15 @@ class EnergySharingManager:
         try:
             deltas = self._calculate_deltas(previous, readings)
         except _CounterResetError as err:
-            return await self._async_handle_counter_reset(readings, err, interval_id)
+            return await self._async_handle_counter_reset(
+                trigger, readings, err, interval_id
+            )
+
+        restore = self._detect_counter_restore(previous, readings, deltas)
+        if restore is not None:
+            return await self._async_handle_counter_restore(
+                readings, restore, interval_id
+            )
 
         mode = self.operating_mode
         fixed_pct = self.fixed_allocation_percentage
@@ -718,6 +811,7 @@ class EnergySharingManager:
 
         active_load_interval_kwh = 0.0
         active_load_owned_kwh = 0.0
+        alc_snapshot: dict[str, Any] | None = None
         if self._active_load_controller is not None:
             active_load_interval_kwh = (
                 self._active_load_controller.get_interval_measured_kwh(interval_id)
@@ -726,6 +820,9 @@ class EnergySharingManager:
                 self._active_load_controller.get_interval_owned_measured_kwh(
                     interval_id
                 )
+            )
+            alc_snapshot = self._active_load_controller.get_interval_archive_snapshot(
+                interval_id
             )
         provider_export_kwh = settlement["provider_export_interval_kwh"]
         ideal_share_excluding_active_loads_pct = (
@@ -799,13 +896,17 @@ class EnergySharingManager:
                 provider_export_kwh=result.provider_export_interval_kwh,
                 active_load_kwh=result.active_load_interval_kwh,
             )
+            await self.archive.async_append(
+                archive_interval_from_result(result, alc_snapshot=alc_snapshot)
+            )
+            self.refresh_recommendation()
             self.data.processed_intervals += 1
             if missed > 0:
                 self.data.skipped_intervals += missed
                 await self._async_record_failure(
                     f"missed_intervals:{missed}",
                     interval_id,
-                    increment_skip=True,
+                    increment_skip=False,
                     save=False,
                 )
 
@@ -979,12 +1080,70 @@ class EnergySharingManager:
 
         return deltas
 
+    def _detect_counter_restore(
+        self,
+        previous: BoundarySnapshot,
+        readings: _CurrentReadings,
+        deltas: dict[str, float],
+    ) -> _CounterRestoreError | None:
+        """Detect a glitch restore or an implausibly large interval jump."""
+        reset = self.data.last_source_reset
+        max_kwh = max_plausible_interval_kwh(self.interval_minutes)
+        checks: list[tuple[str, float, float, float, str]] = [
+            (
+                "receiver_import",
+                readings.receiver.total_kwh,
+                previous.receiver_import_total_kwh,
+                deltas["receiver_import_interval_kwh"],
+                readings.receiver.entity_id,
+            ),
+            (
+                "shared_energy",
+                readings.shared.total_kwh,
+                previous.shared_energy_total_kwh,
+                deltas["shared_energy_interval_kwh"],
+                readings.shared.entity_id,
+            ),
+        ]
+        if (
+            readings.provider is not None
+            and previous.provider_export_total_kwh is not None
+        ):
+            checks.append(
+                (
+                    "provider_export",
+                    readings.provider.total_kwh,
+                    previous.provider_export_total_kwh,
+                    deltas["provider_export_interval_kwh"],
+                    readings.provider.entity_id,
+                )
+            )
+
+        for source_key, current, snapshot, delta, entity_id in checks:
+            if looks_like_counter_restore(current, snapshot, reset, source_key):
+                return _CounterRestoreError(
+                    source_key, entity_id, snapshot, current, "restore"
+                )
+            if delta > max_kwh:
+                return _CounterRestoreError(
+                    source_key, entity_id, snapshot, current, "implausible_delta"
+                )
+        return None
+
     async def _async_handle_counter_reset(
         self,
+        trigger: str,
         readings: _CurrentReadings,
         err: _CounterResetError,
         interval_id: str,
     ) -> str:
+        now = dt_util.utcnow()
+        if self._retry_deadline is not None and now < self._retry_deadline:
+            self.status = STATUS_WAITING_FOR_SOURCES
+            return await self._async_handle_retry(
+                trigger, interval_id, f"counter_reset:{err.source_key}"
+            )
+
         self._clear_retry_state()
         self.data.source_reset_count += 1
         self.data.last_source_reset = SourceResetRecord(
@@ -996,6 +1155,7 @@ class EnergySharingManager:
             interval_id=interval_id,
         )
         await self._async_establish_baseline(readings, force=False)
+        self.data.last_processed_interval_id = interval_id
         self.data.skipped_intervals += 1
         await self._async_record_failure(
             f"counter_reset:{err.source_key}",
@@ -1012,6 +1172,33 @@ class EnergySharingManager:
             err.current,
         )
         return f"skipped:counter_reset:{err.source_key}"
+
+    async def _async_handle_counter_restore(
+        self,
+        readings: _CurrentReadings,
+        err: _CounterRestoreError,
+        interval_id: str,
+    ) -> str:
+        self._clear_retry_state()
+        await self._async_establish_baseline(readings, force=False)
+        self.data.last_processed_interval_id = interval_id
+        self.data.skipped_intervals += 1
+        await self._async_record_failure(
+            f"counter_{err.reason}:{err.source_key}",
+            interval_id,
+            increment_skip=False,
+        )
+        self.status = STATUS_INTERVAL_SKIPPED
+        _LOGGER.warning(
+            "Ignored %s for %s on %s (%s): snapshot %.3f -> %.3f",
+            err.reason,
+            self.entry.title,
+            err.source_key,
+            interval_id,
+            err.previous,
+            err.current,
+        )
+        return f"skipped:counter_{err.reason}:{err.source_key}"
 
     async def _async_handle_retry(
         self,
@@ -1110,6 +1297,120 @@ class EnergySharingManager:
             ),
         }
 
+    def refresh_recommendation(self) -> ShareRecommendation | None:
+        """Recompute next-month share recommendations from the archive."""
+        now = dt_util.now()
+        start, end = observation_window(now)
+        self._recommendation = recommend_next_month_share(
+            self.archive.get_range(start, end + timedelta(seconds=1)),
+            now=now,
+            options=dict(self.entry.options),
+        )
+        return self._recommendation
+
+    def get_recommendation(self) -> ShareRecommendation | None:
+        """Return the cached next-month share recommendation."""
+        return self._recommendation
+
+    async def async_export_analysis_pack(
+        self,
+        *,
+        period: str | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        target_month: str | None = None,
+    ) -> dict[str, Any]:
+        """Write the analysis CSV pack and return a service response."""
+        now = dt_util.now()
+        resolved = resolve_export_period(period, start, end, now)
+        archive_rows = self.archive.get_range(resolved.start, resolved.end)
+        recorder_rows = await async_recorder_interval_rows(
+            self.hass, self.entry.entry_id, resolved.start, resolved.end
+        )
+        merged = merge_archive_and_recorder(archive_rows, recorder_rows)
+        recorder_only = max(len(merged) - len(archive_rows), 0)
+
+        year_start = start_of_month(resolved.start).replace(month=1)
+        statistic_entities: list[str] = []
+        if self.provider_export_total_source:
+            statistic_entities.append(self.provider_export_total_source)
+        shared_source = self.entry.data.get(CONF_SHARED_ENERGY_TOTAL_SOURCE)
+        if shared_source:
+            statistic_entities.append(str(shared_source))
+        daily = await async_recorder_daily_energy(
+            self.hass, statistic_entities, year_start, resolved.end
+        )
+        if not daily:
+            year_intervals = self.archive.get_range(year_start, resolved.end)
+            year_merged = merge_archive_and_recorder(year_intervals, recorder_rows)
+            daily = daily_energy_from_intervals(year_merged, resolved.start.tzinfo)
+
+        recommendation = recommend_next_month_share(
+            self.archive.intervals,
+            now=now,
+            options=dict(self.entry.options),
+            target_month=target_month,
+        )
+        self._recommendation = recommendation
+
+        settlement_rows = build_settlement_rows(merged)
+        energy_rows = build_energy_rows(daily, resolved.start, resolved.end)
+        active_rows = build_active_load_rows(merged)
+        next_month_rows = build_next_month_rows(recommendation)
+        files = {
+            "settlement_intervals.csv": render_csv(SETTLEMENT_FIELDS, settlement_rows),
+            "energy.csv": render_csv(
+                ENERGY_FIELDS, energy_rows, comments=ENERGY_CSV_COMMENTS
+            ),
+            "next_month_share.csv": render_csv(
+                NEXT_MONTH_FIELDS, next_month_rows, comments=NEXT_MONTH_COMMENTS
+            ),
+            "manifest.txt": build_manifest_text(
+                period=resolved,
+                archive_count=len(archive_rows),
+                recorder_count=recorder_only,
+                active_loads_included=bool(active_rows),
+                recommendation=recommendation,
+            ),
+        }
+        if active_rows:
+            files["active_loads.csv"] = render_csv(ACTIVE_LOAD_FIELDS, active_rows)
+
+        stamp = now.strftime("%Y%m%dT%H%M%S")
+        folder, zip_path = write_export_pack(
+            resolve_export_directory(self.hass), stamp=stamp, files=files
+        )
+        try:
+            await self.hass.services.async_call(
+                "persistent_notification",
+                "create",
+                {
+                    "title": "Energy Sharing analysis pack",
+                    "message": (
+                        f"Saved to {folder}. Zip: {zip_path}. "
+                        "Open Media → Local → energy_sharing to download."
+                    ),
+                    "notification_id": f"energy_sharing_export_{self.entry.entry_id}",
+                },
+            )
+        except Exception:  # pragma: no cover - notification is best-effort
+            _LOGGER.debug("Could not create export notification", exc_info=True)
+        self._notify_update()
+        return {
+            "folder": str(folder),
+            "zip_path": str(zip_path),
+            "settlement_rows": len(settlement_rows),
+            "energy_rows": len(energy_rows),
+            "active_load_rows": len(active_rows),
+            "active_loads_included": bool(active_rows),
+            "archive_intervals": len(archive_rows),
+            "recorder_intervals": recorder_only,
+            "target_month": recommendation.target_month,
+            "recommended_share_conservative": recommendation.conservative_pct,
+            "recommended_share_optimistic": recommendation.optimistic_pct,
+            "deadline_passed": recommendation.deadline_passed,
+        }
+
     def get_diagnostics_snapshot(self) -> dict[str, Any]:
         def _snap(state: Any) -> dict[str, Any] | None:
             if state is None:
@@ -1184,4 +1485,7 @@ class EnergySharingManager:
                 else None
             ),
             "ideal_share_averages": self.get_ideal_share_averages(),
+            "recommendation": (
+                self._recommendation.to_dict() if self._recommendation else None
+            ),
         }

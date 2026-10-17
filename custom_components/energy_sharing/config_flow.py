@@ -63,6 +63,7 @@ from .const import (
     MIN_PROCESSING_DELAY,
     MIN_RETRY_INTERVAL,
     MIN_SOURCE_FRESHNESS_TOLERANCE,
+    MONTHLY_PRODUCTION_OPTION_KEYS,
     RECONCILIATION_MODE_SKIP_INTERVAL,
     RECONCILIATION_MODE_WARN,
 )
@@ -101,6 +102,14 @@ _SWITCH_MULTI_SELECTOR = selector.EntitySelector(
 )
 _POWER_SELECTOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain=["sensor"], device_class=["power"])
+)
+_MONTHLY_PRODUCTION_SELECTOR = selector.NumberSelector(
+    selector.NumberSelectorConfig(
+        min=0.01,
+        max=100000,
+        step=0.01,
+        mode=selector.NumberSelectorMode.BOX,
+    )
 )
 
 
@@ -248,6 +257,8 @@ def _options_schema(defaults: dict[str, Any]) -> vol.Schema:
             )
         ),
     }
+    for key in MONTHLY_PRODUCTION_OPTION_KEYS.values():
+        schema[_optional_field(key, defaults)] = _MONTHLY_PRODUCTION_SELECTOR
     return vol.Schema(schema)
 
 
@@ -527,6 +538,8 @@ class EnergySharingOptionsFlowHandler(config_entries.OptionsFlow):
             user_input[timestamp_key] = _clean_optional(
                 user_input.get(timestamp_key)
             )
+        for month_key in MONTHLY_PRODUCTION_OPTION_KEYS.values():
+            user_input[month_key] = _clean_optional(user_input.get(month_key))
         options = {**self.config_entry.options, **user_input}
         self.hass.config_entries.async_update_entry(
             self.config_entry,
