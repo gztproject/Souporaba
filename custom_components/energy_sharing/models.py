@@ -733,12 +733,16 @@ def calculate_settlement(
     allocation_difference_pct: float | None = None
 
     if operating_mode == MODE_PERCENTAGE_ONLY:
-        assert fixed_percentage is not None and fixed_percentage > 0
-        provider_export_interval_kwh = shared / (fixed_percentage / 100.0)
-        provider_export_source_type = EXPORT_TYPE_INFERRED
-        if provider_export_interval_kwh > 0:
-            required_share_pct = 100.0 * imported / provider_export_interval_kwh
-            ideal_share_pct = clamp(required_share_pct, 0.0, 100.0)
+        assert fixed_percentage is not None
+        if fixed_percentage <= 0:
+            # A zero share cannot be inverted into provider export.
+            expected_shared_kwh = 0.0
+        else:
+            provider_export_interval_kwh = shared / (fixed_percentage / 100.0)
+            provider_export_source_type = EXPORT_TYPE_INFERRED
+            if provider_export_interval_kwh > 0:
+                required_share_pct = 100.0 * imported / provider_export_interval_kwh
+                ideal_share_pct = clamp(required_share_pct, 0.0, 100.0)
 
     elif operating_mode == MODE_EXPORT_ONLY:
         assert provider_export is not None
@@ -784,7 +788,7 @@ def evaluate_reconciliation(
     actual_shared_kwh: float,
     tolerance_kwh: float,
     tolerance_pct: float,
-) -> dict[str, float | bool]:
+) -> dict[str, float | bool | None]:
     """Evaluate reconciliation in export-and-percentage mode.
 
     Reconciliation passes when either:
@@ -795,16 +799,20 @@ def evaluate_reconciliation(
     difference_pct: float | None = None
     if expected_shared_kwh > 0:
         difference_pct = 100.0 * abs(difference_kwh) / expected_shared_kwh
+    elif difference_kwh == 0:
+        difference_pct = 0.0
 
     within_kwh = abs(difference_kwh) <= tolerance_kwh
-    within_pct = difference_pct is not None and difference_pct <= tolerance_pct
+    within_pct = (
+        expected_shared_kwh > 0
+        and difference_pct is not None
+        and difference_pct <= tolerance_pct
+    )
     reconciled = within_kwh or within_pct
 
     return {
         "allocation_difference_kwh": difference_kwh,
-        "allocation_difference_pct": (
-            difference_pct if difference_pct is not None else 0.0
-        ),
+        "allocation_difference_pct": difference_pct,
         "reconciled": reconciled,
     }
 

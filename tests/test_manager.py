@@ -16,10 +16,12 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.energy_sharing.const import (
     CONF_ALLOCATION_TOLERANCE_KWH,
     CONF_ALLOCATION_TOLERANCE_PCT,
+    CONF_FIXED_ALLOCATION_PERCENTAGE,
     CONF_RECONCILIATION_FAILURE_MODE,
     DOMAIN,
     EXPORT_TYPE_INFERRED,
     EXPORT_TYPE_MEASURED,
+    EXPORT_TYPE_NONE,
     MODE_EXPORT_AND_PERCENTAGE,
     MODE_EXPORT_ONLY,
     MODE_PERCENTAGE_ONLY,
@@ -209,6 +211,85 @@ async def test_export_and_percentage_mode(
     last = manager.data.last_interval
     assert last.expected_shared_kwh == pytest.approx(0.7)
     assert last.reconciliation_status == RECONCILIATION_MATCHED
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_zero_allocation_expects_no_shared_energy(
+    hass: HomeAssistant,
+    setup_export_and_percentage: MockConfigEntry,
+    receiver_import_total_entity: str,
+    shared_energy_total_entity: str,
+    provider_export_total_entity: str,
+) -> None:
+    entry = setup_export_and_percentage
+    hass.config_entries.async_update_entry(
+        entry,
+        options={**entry.options, CONF_FIXED_ALLOCATION_PERCENTAGE: 0.0},
+    )
+    await hass.async_block_till_done()
+    manager = entry.runtime_data.manager
+    assert manager.sharing_paused is True
+
+    set_cumulative_sources(
+        hass,
+        receiver_import_total_entity=receiver_import_total_entity,
+        shared_energy_total_entity=shared_energy_total_entity,
+        receiver_total=100.0,
+        shared_total=10.0,
+        provider_export_total_entity=provider_export_total_entity,
+        provider_total=200.0,
+    )
+    assert await manager.async_process_now() == "baseline_initialized"
+
+    set_cumulative_sources(
+        hass,
+        receiver_import_total_entity=receiver_import_total_entity,
+        shared_energy_total_entity=shared_energy_total_entity,
+        receiver_total=101.0,
+        shared_total=10.0,
+        provider_export_total_entity=provider_export_total_entity,
+        provider_total=210.0,
+    )
+    assert await manager.async_process_now() == "processed"
+    last = manager.data.last_interval
+    assert last.fixed_allocation_percentage == pytest.approx(0.0)
+    assert last.expected_shared_kwh == pytest.approx(0.0)
+    assert last.shared_energy_interval_kwh == pytest.approx(0.0)
+    assert last.billable_energy_kwh == pytest.approx(1.0)
+    assert last.reconciliation_status == RECONCILIATION_MATCHED
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
+async def test_percentage_only_zero_share_skips_inferred_export(
+    hass: HomeAssistant,
+    setup_percentage_only: MockConfigEntry,
+    receiver_import_total_entity: str,
+    shared_energy_total_entity: str,
+) -> None:
+    entry = setup_percentage_only
+    hass.config_entries.async_update_entry(
+        entry,
+        options={**entry.options, CONF_FIXED_ALLOCATION_PERCENTAGE: 0.0},
+    )
+    await hass.async_block_till_done()
+    manager = entry.runtime_data.manager
+    await _establish_baseline_and_process(
+        manager,
+        hass,
+        entry,
+        receiver_import_total_entity,
+        shared_energy_total_entity,
+        receiver_total=100.0,
+        shared_total=10.0,
+        interval_end=datetime(
+            2026, 7, 12, 15, 0, 0, tzinfo=dt_util.get_time_zone("Europe/Ljubljana")
+        ),
+    )
+    last = manager.data.last_interval
+    assert last.operating_mode == MODE_PERCENTAGE_ONLY
+    assert last.provider_export_source_type == EXPORT_TYPE_NONE
+    assert last.provider_export_interval_kwh is None
+    assert last.expected_shared_kwh == pytest.approx(0.0)
 
 
 @freeze_time("2026-07-12 15:00:10+02:00")

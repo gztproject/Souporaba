@@ -15,7 +15,7 @@
           "receiver_import_total_source": "Cumulative energy sensor for total grid import at the receiver (Prejemnik), in Wh or kWh.",
           "shared_energy_total_source": "Cumulative energy sensor for total energy allocated to the receiver (Prejemnik) through energy sharing.",
           "provider_export_total_source": "Optional cumulative energy sensor for total grid export at the provider (Oddajnik).",
-          "fixed_allocation_percentage": "Fixed contractual allocation percentage. Required when provider export is not configured."
+          "fixed_allocation_percentage": "Contractual allocation percentage. Set to 0 to pause sharing for a month. Required when provider export is not configured."
         }
       }
     },
@@ -25,7 +25,7 @@
       "source_unavailable": "The selected entity is unavailable.",
       "source_not_numeric": "The selected entity state is not a valid non-negative number.",
       "unsupported_energy_unit": "The selected entity uses an unsupported energy unit. Use Wh or kWh.",
-      "percentage_invalid": "The allocation percentage must be greater than zero and at most 100.",
+      "percentage_invalid": "The allocation percentage must be from 0 through 100. Use 0 to pause sharing for a month.",
       "percentage_or_export_required": "Configure a fixed allocation percentage and/or a provider total grid export source."
     },
     "abort": {
@@ -68,6 +68,7 @@
           "monthly_production_dec": "Statistical production December (optional)"
         },
         "data_description": {
+          "fixed_allocation_percentage": "Contractual allocation percentage. Set to 0 to pause sharing for a month.",
           "monthly_production_jan": "Optional monthly kWh or relative yield. Replaces the built-in Slovenia curve for that month. Only month-to-month ratios are used.",
           "monthly_production_feb": "Optional monthly kWh or relative yield for February.",
           "monthly_production_mar": "Optional monthly kWh or relative yield for March.",
@@ -89,7 +90,7 @@
       }
     },
     "error": {
-      "percentage_invalid": "The allocation percentage must be greater than zero and at most 100.",
+      "percentage_invalid": "The allocation percentage must be from 0 through 100. Use 0 to pause sharing for a month.",
       "percentage_or_export_required": "Configure a fixed allocation percentage and/or a provider total grid export source."
     }
   },

@@ -11,7 +11,7 @@ from homeassistant.util import dt as dt_util
 from .archive import ArchiveInterval
 from .const import (
     MAX_ALLOCATION_PERCENTAGE,
-    MIN_ALLOCATION_PERCENTAGE,
+    MIN_RECOMMENDED_ALLOCATION_PERCENTAGE,
     MOJ_ELEKTRO_DEADLINE_DAY,
     MONTHLY_PRODUCTION_OPTION_KEYS,
     RECOMMEND_MIN_DAYLIGHT_INTERVALS,
@@ -189,7 +189,9 @@ def optimistic_load_kwh(interval: ArchiveInterval) -> float:
 
 def _round_share(value: float) -> float:
     rounded = round(value, RECOMMEND_ROUND_DECIMALS)
-    return clamp(rounded, MIN_ALLOCATION_PERCENTAGE, MAX_ALLOCATION_PERCENTAGE)
+    return clamp(
+        rounded, MIN_RECOMMENDED_ALLOCATION_PERCENTAGE, MAX_ALLOCATION_PERCENTAGE
+    )
 
 
 def simulate_share(
@@ -228,7 +230,7 @@ def largest_share_within_unused_ratio(
     max_unused_ratio: float,
 ) -> float | None:
     """Binary-search the largest share whose unused/expected stays in budget."""
-    low = MIN_ALLOCATION_PERCENTAGE
+    low = MIN_RECOMMENDED_ALLOCATION_PERCENTAGE
     high = MAX_ALLOCATION_PERCENTAGE
     best: float | None = None
     _unused, _coverage, low_ratio = simulate_share(

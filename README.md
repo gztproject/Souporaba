@@ -25,7 +25,7 @@ Review interval and cumulative sensors (`ideal_share_last_interval`, `required_s
 
 ### Phase 2 — Tune each month after go-live
 
-Keep the integration running. Each month, compare registered sharing against real intervals and adjust the percentage for the **next** month in **Moj Elektro** (submit by the **10th** for effect on the **1st** of the following month). When you change the registered share, update the **Fixed allocation percentage** number on the device (or the same field in Options).
+Keep the integration running. Each month, compare registered sharing against real intervals and adjust the percentage for the **next** month in **Moj Elektro** (submit by the **10th** for effect on the **1st** of the following month). When you change the registered share, update the **Fixed allocation percentage** number on the device (or the same field in Options). Set that percentage to **0** to pause sharing for a month: expected shared energy becomes 0 and active-load control stops soaking surplus.
 
 The integration **recommends and monitors**; you **register and confirm** sharing in Moj Elektro.
 
@@ -52,7 +52,7 @@ At least one of **fixed allocation percentage** or **provider total grid export*
 
 ### Operating modes
 
-- **Percentage-only** — infers provider export from shared energy and fixed percentage
+- **Percentage-only** — infers provider export from shared energy and a non-zero fixed percentage. At 0% expected shared energy is 0 and export is not inferred.
 - **Export-only** — uses measured provider export; effective percentage is derived
 - **Export + percentage (preferred)** — measured export with reconciliation against shared energy
 

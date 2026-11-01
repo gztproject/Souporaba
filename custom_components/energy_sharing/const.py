@@ -135,7 +135,10 @@ MIN_RETRY_INTERVAL: Final = 1
 MAX_RETRY_INTERVAL: Final = 60
 MIN_SOURCE_FRESHNESS_TOLERANCE: Final = 30
 MAX_SOURCE_FRESHNESS_TOLERANCE: Final = 3600
-MIN_ALLOCATION_PERCENTAGE: Final = 0.01
+# 0 pauses contractual sharing for a month (expected shared energy is 0).
+MIN_ALLOCATION_PERCENTAGE: Final = 0.0
+# Share search must start above 0; a 0% trial has no expected energy to score.
+MIN_RECOMMENDED_ALLOCATION_PERCENTAGE: Final = 0.01
 MAX_ALLOCATION_PERCENTAGE: Final = 100.0
 MIN_ACTIVE_LOAD_MIN_POWER_W: Final = 1.0
 MAX_ACTIVE_LOAD_MIN_POWER_W: Final = 20000.0

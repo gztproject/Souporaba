@@ -15,7 +15,7 @@
           "receiver_import_total_source": "Kumulativni energijski senzor za skupni omrežni prevzem prejemnika (Wh ali kWh).",
           "shared_energy_total_source": "Kumulativni energijski senzor za skupno energijo, dodeljeno prejemniku prek souporabe.",
           "provider_export_total_source": "Neobvezen kumulativni senzor za skupni izvoz oddajnika v omrežje.",
-          "fixed_allocation_percentage": "Fiksni pogodbeni odstotek dodelitve. Obvezen, če izvoz oddajnika ni nastavljen."
+          "fixed_allocation_percentage": "Pogodbeni odstotek dodelitve. Nastavite na 0, da souporabo za mesec začasno ustavite. Obvezen, če izvoz oddajnika ni nastavljen."
         }
       }
     },
@@ -25,7 +25,7 @@
       "source_unavailable": "Izbrana entiteta ni na voljo.",
       "source_not_numeric": "Stanje entitete ni veljavno nenegativno število.",
       "unsupported_energy_unit": "Izbrana entiteta uporablja nepodprto energijsko enoto. Uporabite Wh ali kWh.",
-      "percentage_invalid": "Odstotek dodelitve mora biti večji od nič in največ 100.",
+      "percentage_invalid": "Odstotek dodelitve mora biti od 0 do 100. Vrednost 0 za mesec začasno ustavi souporabo.",
       "percentage_or_export_required": "Nastavite fiksni odstotek dodelitve in/ali skupni izvoz oddajnika."
     },
     "abort": {
@@ -68,6 +68,7 @@
           "monthly_production_dec": "Statistična proizvodnja december (neobvezno)"
         },
         "data_description": {
+          "fixed_allocation_percentage": "Pogodbeni odstotek dodelitve. Nastavite na 0, da souporabo za mesec začasno ustavite.",
           "monthly_production_jan": "Neobvezen mesečni kWh ali relativni donos. Zamenja vgrajeno slovensko krivuljo za ta mesec. Uporabljajo se samo razmerja med meseci.",
           "monthly_production_feb": "Neobvezen mesečni kWh ali relativni donos za februar.",
           "monthly_production_mar": "Neobvezen mesečni kWh ali relativni donos za marec.",
@@ -89,7 +90,7 @@
       }
     },
     "error": {
-      "percentage_invalid": "Odstotek dodelitve mora biti večji od nič in največ 100.",
+      "percentage_invalid": "Odstotek dodelitve mora biti od 0 do 100. Vrednost 0 za mesec začasno ustavi souporabo.",
       "percentage_or_export_required": "Nastavite fiksni odstotek dodelitve in/ali skupni izvoz oddajnika."
     }
   },

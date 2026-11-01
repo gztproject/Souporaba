@@ -32,7 +32,10 @@ async def async_setup_entry(
 
 
 class FixedAllocationPercentageNumber(NumberEntity):
-    """Config number for the contractual Moj Elektro allocation percentage."""
+    """Config number for the contractual Moj Elektro allocation percentage.
+
+    0% pauses sharing for the month.
+    """
 
     _attr_has_entity_name = True
     _attr_translation_key = "fixed_allocation_percentage"

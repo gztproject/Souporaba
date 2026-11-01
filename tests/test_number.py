@@ -38,3 +38,33 @@ async def test_number_updates_options(
     updated = hass.states.get(entity_id)
     assert updated is not None
     assert float(updated.state) == pytest.approx(8.5)
+
+
+async def test_number_accepts_zero_to_pause_sharing(
+    hass: HomeAssistant,
+    setup_export_and_percentage: MockConfigEntry,
+) -> None:
+    entry = setup_export_and_percentage
+    registry = er.async_get(hass)
+    entity_id = registry.async_get_entity_id(
+        "number", DOMAIN, f"{entry.entry_id}_fixed_allocation_percentage"
+    )
+    assert entity_id is not None
+    state = hass.states.get(entity_id)
+    assert state is not None
+    assert state.attributes["min"] == 0
+
+    await hass.services.async_call(
+        "number",
+        "set_value",
+        {"entity_id": entity_id, "value": 0},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    assert entry.options[CONF_FIXED_ALLOCATION_PERCENTAGE] == 0
+    updated = hass.states.get(entity_id)
+    assert updated is not None
+    assert float(updated.state) == pytest.approx(0.0)
+    manager = entry.runtime_data.manager
+    assert manager.sharing_paused is True
+    assert manager.fixed_allocation_percentage == pytest.approx(0.0)

@@ -9,6 +9,7 @@ import pytest
 from custom_components.energy_sharing.const import (
     EXPORT_TYPE_INFERRED,
     EXPORT_TYPE_MEASURED,
+    EXPORT_TYPE_NONE,
     MODE_EXPORT_AND_PERCENTAGE,
     MODE_EXPORT_ONLY,
     MODE_PERCENTAGE_ONLY,
@@ -83,6 +84,35 @@ def test_percentage_only_mode_seven_percent() -> None:
     assert result["provider_export_source_type"] == EXPORT_TYPE_INFERRED
     assert result["used_shared_kwh"] == pytest.approx(0.7)
     assert result["billable_energy_kwh"] == pytest.approx(0.3)
+
+
+def test_percentage_only_zero_share_does_not_infer_export() -> None:
+    result = calculate_settlement(
+        operating_mode=MODE_PERCENTAGE_ONLY,
+        imported=1.0,
+        shared=0.0,
+        provider_export=None,
+        fixed_percentage=0.0,
+    )
+    assert result["provider_export_interval_kwh"] is None
+    assert result["provider_export_source_type"] == EXPORT_TYPE_NONE
+    assert result["expected_shared_kwh"] == pytest.approx(0.0)
+    assert result["billable_energy_kwh"] == pytest.approx(1.0)
+
+
+def test_export_and_percentage_zero_share() -> None:
+    result = calculate_settlement(
+        operating_mode=MODE_EXPORT_AND_PERCENTAGE,
+        imported=1.0,
+        shared=0.0,
+        provider_export=10.0,
+        fixed_percentage=0.0,
+    )
+    assert result["expected_shared_kwh"] == pytest.approx(0.0)
+    assert result["allocation_difference_kwh"] == pytest.approx(0.0)
+    assert result["effective_allocation_pct"] == pytest.approx(0.0)
+    assert result["ideal_share_pct"] == pytest.approx(10.0)
+    assert result["billable_energy_kwh"] == pytest.approx(1.0)
 
 
 def test_export_only_mode() -> None:
@@ -165,6 +195,17 @@ def test_reconciliation_tolerances() -> None:
     assert evaluate_reconciliation(0.7, 0.705, 0.01, 0.0)["reconciled"] is True
     assert evaluate_reconciliation(0.7, 0.734, 0.0, 5.0)["reconciled"] is True
     assert evaluate_reconciliation(0.7, 0.8, 0.001, 1.0)["reconciled"] is False
+
+
+def test_reconciliation_zero_expected_share() -> None:
+    matched = evaluate_reconciliation(0.0, 0.0, 0.01, 5.0)
+    assert matched["reconciled"] is True
+    assert matched["allocation_difference_pct"] == pytest.approx(0.0)
+
+    mismatch = evaluate_reconciliation(0.0, 0.2, 0.01, 5.0)
+    assert mismatch["reconciled"] is False
+    assert mismatch["allocation_difference_kwh"] == pytest.approx(0.2)
+    assert mismatch["allocation_difference_pct"] is None
 
 
 def test_migrate_storage_v3_billable_keys() -> None:

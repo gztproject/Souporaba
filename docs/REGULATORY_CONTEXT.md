@@ -18,7 +18,7 @@ It is designed for a **two-phase workflow** on the **Prejemnik (Receiver)** Home
 Run the integration with measured Oddajnik (Provider) grid export and Prejemnik grid import. Use export + percentage mode (or export-only) to observe real 15-minute behaviour **without relying on a guessed allocation percentage**. Review sensors such as `ideal_share_last_interval`, `required_share_last_interval`, `effective_allocation_percentage_last_interval`, and cumulative totals to derive an **evidence-based percentage** for your Moj Elektro registration.
 
 **Phase 2 — Ongoing operation (after registration)**  
-Keep the integration running through each month. Compare actual shared energy, consumption coverage, and unused shared energy against your registered percentage. Use the results to **adjust the share for the next month** in Moj Elektro (submit by the **10th** of the month for effect on the **1st** of the following month). Update `fixed_allocation_percentage` in integration options when the registered share changes.
+Keep the integration running through each month. Compare actual shared energy, consumption coverage, and unused shared energy against your registered percentage. Use the results to **adjust the share for the next month** in Moj Elektro (submit by the **10th** of the month for effect on the **1st** of the following month). Update `fixed_allocation_percentage` in integration options when the registered share changes. Set it to **0** for a month when sharing is paused.
 
 The integration **recommends and monitors**; you **register and confirm** sharing in Moj Elektro.
 
@@ -32,7 +32,7 @@ Zasnovana je za **dvofazni potek** na instanci Home Assistant **prejemnika (Prej
 Zaženite integracijo z izmerjenim omrežnim izvozom oddajnika in omrežnim prevzemom prejemnika. Uporabite način izvoz + odstotek (ali samo izvoz), da opazujete dejansko 15-minutno obnašanje **brez ugibanja odstotka dodelitve**. Preglejte senzorje, kot so `ideal_share_last_interval`, `required_share_last_interval`, `effective_allocation_percentage_last_interval`, in kumulativne vrednosti, da izpeljete **odstotek na podlagi meritev** za registracijo v Moj Elektro.
 
 **Faza 2 — Tekoče delovanje (po registraciji)**  
-Integracijo pustite v teku skozi mesec. Primerjajte dejansko souporabo, pokritost porabe in neuporabljeno souporabo z registriranim odstotkom. Rezultate uporabite za **prilagoditev deleža za naslednji mesec** v Moj Elektro (vlogo oddajte do **10.** v mesecu za začetek **1.** v naslednjem mesecu). Ko se registrirani delež spremeni, posodobite `fixed_allocation_percentage` v možnostih integracije.
+Integracijo pustite v teku skozi mesec. Primerjajte dejansko souporabo, pokritost porabe in neuporabljeno souporabo z registriranim odstotkom. Rezultate uporabite za **prilagoditev deleža za naslednji mesec** v Moj Elektro (vlogo oddajte do **10.** v mesecu za začetek **1.** v naslednjem mesecu). Ko se registrirani delež spremeni, posodobite `fixed_allocation_percentage` v možnostih integracije. Za mesec brez souporabe ga nastavite na **0**.
 
 Integracija **priporoča in spremlja**; vi **registrirate in potrjujete** souporabo v Moj Elektro.
 

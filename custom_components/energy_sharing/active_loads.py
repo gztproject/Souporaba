@@ -635,6 +635,26 @@ class ActiveLoadController:
         base_target_wh = max(0.0, next_potential - next_baseline) * 1000.0
         return unused_wh, base_target_wh
 
+    def pause_for_zero_allocation(self) -> None:
+        """Drop soak targets while the contractual share is 0%."""
+        self._clear_share_prediction()
+        self._last_interval_base_target_wh = 0.0
+        self._interval.interval_target_wh = 0.0
+        self._interval.correction_wh = 0.0
+        for load in self._loads:
+            load.allocated_target_wh = 0.0
+        self.hass.async_create_task(self._async_release_paused_loads())
+
+    async def _async_release_paused_loads(self) -> None:
+        for load in list(self._loads):
+            await self._async_maybe_stop_owned(load, "allocation_paused")
+
+    def _clear_share_prediction(self) -> None:
+        self._prediction_history.clear()
+        self._prediction_next_index = 0
+        self._predicted_potential_kwh = None
+        self._predicted_baseline_kwh = None
+
     def notify_processed_interval(
         self,
         unused_shared_kwh: float,
@@ -643,6 +663,7 @@ class ActiveLoadController:
         expected_shared_kwh: float | None = None,
         receiver_import_kwh: float | None = None,
         active_load_kwh: float | None = None,
+        sharing_paused: bool = False,
     ) -> None:
         now = dt_util.now()
         # Ensure availability/power state is fresh, especially after startup/recovery,
@@ -658,13 +679,18 @@ class ActiveLoadController:
         if self._interval.interval_id != interval_id:
             self._roll_interval(interval_id, interval_end)
 
-        unused_wh, base_target_wh = self._linear_next_interval_budget_wh(
-            unused_shared_kwh=unused_shared_kwh,
-            shared_energy_kwh=shared_energy_kwh,
-            expected_shared_kwh=expected_shared_kwh,
-            receiver_import_kwh=receiver_import_kwh,
-            active_load_kwh=active_load_kwh,
-        )
+        if sharing_paused:
+            self._clear_share_prediction()
+            unused_wh = max(unused_shared_kwh * 1000.0, 0.0)
+            base_target_wh = 0.0
+        else:
+            unused_wh, base_target_wh = self._linear_next_interval_budget_wh(
+                unused_shared_kwh=unused_shared_kwh,
+                shared_energy_kwh=shared_energy_kwh,
+                expected_shared_kwh=expected_shared_kwh,
+                receiver_import_kwh=receiver_import_kwh,
+                active_load_kwh=active_load_kwh,
+            )
         self._last_unused_shared_wh = unused_wh
         self._last_interval_base_target_wh = base_target_wh
         error_wh = self._interval_tracking_error_wh(
@@ -693,7 +719,7 @@ class ActiveLoadController:
                 DEFAULT_ACTIVE_LOAD_ENERGY_DEADBAND_WH,
             )
         )
-        if abs(error_wh) <= deadband_wh:
+        if sharing_paused or abs(error_wh) <= deadband_wh:
             correction_wh = 0.0
         else:
             correction_wh = max(-max_corr, min(max_corr, gain * error_wh))
@@ -701,7 +727,12 @@ class ActiveLoadController:
 
         self._interval.previous_tracking_error_wh = error_wh
         self._interval.correction_wh = correction_wh
-        self._interval.interval_target_wh = max(0.0, min(base_target_wh + correction_wh, capacity_wh))
+        if sharing_paused:
+            self._interval.interval_target_wh = 0.0
+        else:
+            self._interval.interval_target_wh = max(
+                0.0, min(base_target_wh + correction_wh, capacity_wh)
+            )
 
         _LOGGER.info(
             "Active load interval %s: unused=%.3fWh predicted=%.3fWh "

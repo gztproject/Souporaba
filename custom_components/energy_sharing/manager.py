@@ -318,6 +318,12 @@ class EnergySharingManager:
         return float(value)
 
     @property
+    def sharing_paused(self) -> bool:
+        """True when the contractual share is 0% for this month."""
+        percentage = self.fixed_allocation_percentage
+        return percentage is not None and percentage <= 0.0
+
+    @property
     def operating_mode(self) -> str:
         return _resolve_operating_mode(
             self.provider_export_total_source is not None,
@@ -444,9 +450,15 @@ class EnergySharingManager:
             )
             if self._active_load_controller.has_loads:
                 self.hass.async_create_task(self._active_load_controller.async_setup())
-            return
+        else:
+            self._active_load_controller.update_configuration(
+                loads, self.interval_minutes
+            )
+        self._apply_sharing_pause()
 
-        self._active_load_controller.update_configuration(loads, self.interval_minutes)
+    def _apply_sharing_pause(self) -> None:
+        if self.sharing_paused and self._active_load_controller is not None:
+            self._active_load_controller.pause_for_zero_allocation()
 
     def _active_load_configs_from_options(self) -> list[ActiveLoadConfig]:
         raw = self.get_option(CONF_ACTIVE_LOADS, [])
@@ -904,6 +916,7 @@ class EnergySharingManager:
                 expected_shared_kwh=result.expected_shared_kwh,
                 receiver_import_kwh=result.receiver_import_interval_kwh,
                 active_load_kwh=active_load_owned_kwh,
+                sharing_paused=self.sharing_paused,
             )
 
         if accumulate:

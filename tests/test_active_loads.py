@@ -278,6 +278,45 @@ async def test_linear_prediction_skips_dark_zero_potential(
 
 
 @freeze_time("2026-07-12 15:00:10+02:00")
+async def test_zero_allocation_clears_soak_target(
+    hass: HomeAssistant,
+) -> None:
+    controller = await _setup_predict_controller(hass)
+    try:
+        samples = [
+            (0.10, 0.02),
+            (0.15, 0.02),
+            (0.20, 0.02),
+        ]
+        for potential, import_kwh in samples:
+            controller.notify_processed_interval(
+                unused_shared_kwh=max(potential - import_kwh, 0.0),
+                shared_energy_kwh=potential,
+                expected_shared_kwh=potential,
+                receiver_import_kwh=import_kwh,
+                active_load_kwh=0.0,
+            )
+        assert controller.get_snapshot()["prediction_sample_count"] == 3
+        assert controller.get_snapshot()["target_wh"] > 0
+
+        controller.notify_processed_interval(
+            unused_shared_kwh=0.0,
+            shared_energy_kwh=0.0,
+            expected_shared_kwh=0.0,
+            receiver_import_kwh=0.05,
+            active_load_kwh=0.0,
+            sharing_paused=True,
+        )
+        snapshot = controller.get_snapshot()
+        assert snapshot["prediction_sample_count"] == 0
+        assert snapshot["target_wh"] == pytest.approx(0.0)
+        assert snapshot["last_interval_base_target_wh"] == pytest.approx(0.0)
+        assert snapshot["applied_correction_wh"] == pytest.approx(0.0)
+    finally:
+        await controller.async_unload()
+
+
+@freeze_time("2026-07-12 15:00:10+02:00")
 async def test_correction_deadband_skips_tiny_tracking_error(
     hass: HomeAssistant,
 ) -> None:

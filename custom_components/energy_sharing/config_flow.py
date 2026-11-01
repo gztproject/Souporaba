@@ -87,15 +87,6 @@ _PERCENTAGE_SELECTOR = selector.NumberSelector(
     )
 )
 
-_USER_PERCENTAGE_SELECTOR = selector.NumberSelector(
-    selector.NumberSelectorConfig(
-        min=0,
-        max=MAX_ALLOCATION_PERCENTAGE,
-        step=0.01,
-        mode=selector.NumberSelectorMode.BOX,
-    )
-)
-
 _TEXT_SELECTOR = selector.TextSelector()
 _SWITCH_MULTI_SELECTOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain=["switch"], multiple=True)
@@ -164,7 +155,7 @@ def _user_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
             ): _CUMULATIVE_ENERGY_SELECTOR,
             _optional_field(
                 CONF_FIXED_ALLOCATION_PERCENTAGE, defaults
-            ): _USER_PERCENTAGE_SELECTOR,
+            ): _PERCENTAGE_SELECTOR,
         }
     )
 
@@ -280,7 +271,8 @@ def _validate_percentage_or_export(
         return errors
 
     if percentage is not None and (
-        percentage <= 0 or percentage > MAX_ALLOCATION_PERCENTAGE
+        percentage < MIN_ALLOCATION_PERCENTAGE
+        or percentage > MAX_ALLOCATION_PERCENTAGE
     ):
         errors[CONF_FIXED_ALLOCATION_PERCENTAGE] = "percentage_invalid"
 

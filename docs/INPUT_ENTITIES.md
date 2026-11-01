@@ -15,7 +15,7 @@ Instead, it reads **cumulative energy counters** and creates aligned 15-minute s
 | Input | Required | Meaning |
 | Prejemnik (Receiver) total grid import | Yes | Cumulative energy imported by the receiver |
 | Total received shared energy | Yes | Cumulative energy allocated to the receiver |
-| Fixed allocation percentage | Conditional | Required when Oddajnik (Provider) export is not supplied |
+| Fixed allocation percentage | Conditional | Contractual share, including 0 to pause a month. Required when Oddajnik (Provider) export is not supplied |
 | Oddajnik (Provider) total grid export | Conditional | Full cumulative exported surplus of the provider |
 | Active load switches | Optional | One or more controllable switches used to absorb excess shared energy |
 | Active load power sensors | Optional | Real-time power sensors paired with each active load switch (`W` or `kW`) |
@@ -43,6 +43,8 @@ Oddajnik (Provider) interval export is **inferred**:
 `inferred_provider_export = shared_interval / (fixed_percentage / 100)`
 
 This value is labeled **inferred**, not directly measured.
+
+At **0%** the integration does not infer export. Expected shared energy is 0 for that month.
 
 ### B. Export-only mode
 
@@ -157,7 +159,7 @@ Oddajnik (Provider) export source, fixed percentage, timing, tolerances, timesta
 
 ## Monthly allocation and analysis export
 
-Change the contractual % each month with the **Fixed allocation percentage** number on the integration device. That writes `fixed_allocation_percentage` in options immediately.
+Change the contractual % each month with the **Fixed allocation percentage** number on the integration device. That writes `fixed_allocation_percentage` in options immediately. **0%** pauses sharing for the month: expected shared energy is 0, reconciliation treats received shared energy against that zero, and active-load control does not soak surplus until you set a share above 0 again.
 
 Use `energy_sharing.export_analysis_pack` to dump a selected period:
 
