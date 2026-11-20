@@ -68,6 +68,7 @@ from .const import (
     RECONCILIATION_MODE_WARN,
 )
 from .helpers import SourceValidationError, validate_cumulative_source
+from .models import is_valid_allocation_percentage
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -270,9 +271,8 @@ def _validate_percentage_or_export(
         errors["base"] = "percentage_or_export_required"
         return errors
 
-    if percentage is not None and (
-        percentage < MIN_ALLOCATION_PERCENTAGE
-        or percentage > MAX_ALLOCATION_PERCENTAGE
+    if percentage is not None and not is_valid_allocation_percentage(
+        float(percentage)
     ):
         errors[CONF_FIXED_ALLOCATION_PERCENTAGE] = "percentage_invalid"
 

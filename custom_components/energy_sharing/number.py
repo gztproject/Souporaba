@@ -8,6 +8,7 @@ from typing import Any
 from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.const import PERCENTAGE, EntityCategory
 from homeassistant.core import callback
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -20,6 +21,7 @@ from .const import (
     MIN_ALLOCATION_PERCENTAGE,
     MODEL,
 )
+from .models import is_valid_allocation_percentage
 
 
 async def async_setup_entry(
@@ -81,10 +83,17 @@ class FixedAllocationPercentageNumber(NumberEntity):
         self._attr_available = True
 
     async def async_set_native_value(self, value: float) -> None:
+        percentage = float(value)
+        if not is_valid_allocation_percentage(percentage):
+            raise ServiceValidationError(
+                "percentage_invalid",
+                translation_domain=DOMAIN,
+                translation_key="percentage_invalid",
+            )
         options = {
             **self._entry.options,
-            CONF_FIXED_ALLOCATION_PERCENTAGE: float(value),
+            CONF_FIXED_ALLOCATION_PERCENTAGE: percentage,
         }
         self.hass.config_entries.async_update_entry(self._entry, options=options)
-        self._attr_native_value = float(value)
+        self._attr_native_value = percentage
         self.async_write_ha_state()

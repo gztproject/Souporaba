@@ -25,7 +25,7 @@
       "source_unavailable": "Izbrana entiteta ni na voljo.",
       "source_not_numeric": "Stanje entitete ni veljavno nenegativno število.",
       "unsupported_energy_unit": "Izbrana entiteta uporablja nepodprto energijsko enoto. Uporabite Wh ali kWh.",
-      "percentage_invalid": "Odstotek dodelitve mora biti od 0 do 100. Vrednost 0 za mesec začasno ustavi souporabo.",
+      "percentage_invalid": "Odstotek dodelitve mora biti 0 ali od 0,01 do 100. Vrednost 0 za mesec začasno ustavi souporabo.",
       "percentage_or_export_required": "Nastavite fiksni odstotek dodelitve in/ali skupni izvoz oddajnika."
     },
     "abort": {
@@ -90,7 +90,7 @@
       }
     },
     "error": {
-      "percentage_invalid": "Odstotek dodelitve mora biti od 0 do 100. Vrednost 0 za mesec začasno ustavi souporabo.",
+      "percentage_invalid": "Odstotek dodelitve mora biti 0 ali od 0,01 do 100. Vrednost 0 za mesec začasno ustavi souporabo.",
       "percentage_or_export_required": "Nastavite fiksni odstotek dodelitve in/ali skupni izvoz oddajnika."
     }
   },
@@ -242,6 +242,9 @@
     },
     "active_loads_not_configured": {
       "message": "Aktivna bremena niso nastavljena."
+    },
+    "percentage_invalid": {
+      "message": "Odstotek dodelitve mora biti 0 ali od 0,01 do 100. Vrednost 0 za mesec začasno ustavi souporabo."
     }
   }
 }
