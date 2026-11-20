@@ -43,6 +43,7 @@ from .const import (
     DEFAULT_ACTIVE_LOAD_PREDICTIVE_EARLY_STOP,
     DEFAULT_ACTIVE_LOAD_PREDICTIVE_MARGIN_WH,
     DEFAULT_ACTIVE_LOAD_STARTUP_GRACE_SECONDS,
+    DEFAULT_MAX_PLAUSIBLE_INTERVAL_POWER_W,
 )
 from .helpers import floor_to_interval_boundary, parse_finite_number
 
@@ -55,12 +56,18 @@ def parse_power_watts(raw_value: str, unit: str | None) -> float | None:
     if value is None or value < 0:
         return None
     if unit == UnitOfPower.KILO_WATT:
-        return value * 1000.0
-    if unit == UnitOfPower.WATT:
-        return value
-    if unit in ("kW", "W"):
-        return value * 1000.0 if unit == "kW" else value
-    return None
+        watts = value * 1000.0
+    elif unit == UnitOfPower.WATT:
+        watts = value
+    elif unit in ("kW", "W"):
+        watts = value * 1000.0 if unit == "kW" else value
+    else:
+        return None
+    # Power is integrated into interval energy and learned estimates; an
+    # implausible reading could overflow them to a value storage rejects.
+    if watts > DEFAULT_MAX_PLAUSIBLE_INTERVAL_POWER_W:
+        return None
+    return watts
 
 
 @dataclass(slots=True)

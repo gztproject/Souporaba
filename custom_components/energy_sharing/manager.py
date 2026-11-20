@@ -133,6 +133,7 @@ from .models import (
     evaluate_reconciliation,
     looks_like_counter_restore,
     max_plausible_interval_kwh,
+    normalize_allocation_percentage,
 )
 from .models import (
     resolve_operating_mode as _resolve_operating_mode,
@@ -315,7 +316,7 @@ class EnergySharingManager:
         value = self.get_option(CONF_FIXED_ALLOCATION_PERCENTAGE)
         if value is None:
             return None
-        return float(value)
+        return normalize_allocation_percentage(float(value))
 
     @property
     def sharing_paused(self) -> bool:
@@ -907,6 +908,21 @@ class EnergySharingManager:
             settlement_accumulated=accumulate,
             processed_at=dt_util.utcnow(),
         )
+
+        if not result.is_finite():
+            # Storage and sensor state reject non-finite floats; keeping this
+            # result would block every later save and state write.
+            self._clear_retry_state()
+            self.status = STATUS_INTERVAL_SKIPPED
+            await self._async_advance_snapshot(readings)
+            self.data.last_processed_interval_id = interval_id
+            await self._async_record_failure("non_finite_settlement", interval_id)
+            _LOGGER.warning(
+                "Skipped interval %s for %s: settlement produced a non-finite value",
+                interval_id,
+                self.entry.title,
+            )
+            return "skipped:non_finite_settlement"
 
         await self._async_advance_snapshot(readings)
         if self._active_load_controller is not None:

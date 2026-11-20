@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+import math
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -15,6 +16,10 @@ from .const import (
     EXPORT_TYPE_INFERRED,
     EXPORT_TYPE_MEASURED,
     EXPORT_TYPE_NONE,
+    MAX_ALLOCATION_PERCENTAGE,
+    MIN_ALLOCATION_PERCENTAGE,
+    MIN_MEASURABLE_ENERGY_KWH,
+    MIN_NONZERO_ALLOCATION_PERCENTAGE,
     MODE_EXPORT_AND_PERCENTAGE,
     MODE_EXPORT_ONLY,
     MODE_PERCENTAGE_ONLY,
@@ -147,6 +152,14 @@ class IntervalResult:
         data["interval_end"] = self.interval_end.isoformat()
         data["processed_at"] = self.processed_at.isoformat()
         return data
+
+    def is_finite(self) -> bool:
+        """Return True when every numeric field can be stored and published."""
+        for item in fields(self):
+            value = getattr(self, item.name)
+            if isinstance(value, float) and not math.isfinite(value):
+                return False
+        return True
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> IntervalResult:
@@ -528,6 +541,31 @@ def clamp(value: float, minimum: float, maximum: float) -> float:
     return max(minimum, min(value, maximum))
 
 
+def is_valid_allocation_percentage(value: float) -> bool:
+    """Return True for 0 (paused) or a share from the smallest step through 100."""
+    if value == MIN_ALLOCATION_PERCENTAGE:
+        return True
+    return MIN_NONZERO_ALLOCATION_PERCENTAGE <= value <= MAX_ALLOCATION_PERCENTAGE
+
+
+def normalize_allocation_percentage(value: float) -> float:
+    """Clamp a contractual share to 0–100; shares too small to divide by are 0."""
+    if math.isnan(value):
+        return MIN_ALLOCATION_PERCENTAGE
+    value = clamp(value, MIN_ALLOCATION_PERCENTAGE, MAX_ALLOCATION_PERCENTAGE)
+    if value < MIN_NONZERO_ALLOCATION_PERCENTAGE:
+        return MIN_ALLOCATION_PERCENTAGE
+    return value
+
+
+def finite_percentage(numerator: float, denominator: float) -> float | None:
+    """Return 100 * numerator / denominator, or None below a measurable base."""
+    if denominator < MIN_MEASURABLE_ENERGY_KWH:
+        return None
+    value = 100.0 * numerator / denominator
+    return value if math.isfinite(value) else None
+
+
 def calculate_ideal_share_excluding_active_loads_pct(
     *,
     imported_kwh: float,
@@ -734,6 +772,7 @@ def calculate_settlement(
 
     if operating_mode == MODE_PERCENTAGE_ONLY:
         assert fixed_percentage is not None
+        fixed_percentage = normalize_allocation_percentage(fixed_percentage)
         if fixed_percentage <= 0:
             # A zero share cannot be inverted into provider export.
             expected_shared_kwh = 0.0
@@ -741,30 +780,34 @@ def calculate_settlement(
             provider_export_interval_kwh = shared / (fixed_percentage / 100.0)
             provider_export_source_type = EXPORT_TYPE_INFERRED
             if provider_export_interval_kwh > 0:
-                required_share_pct = 100.0 * imported / provider_export_interval_kwh
-                ideal_share_pct = clamp(required_share_pct, 0.0, 100.0)
+                required_share_pct = finite_percentage(
+                    imported, provider_export_interval_kwh
+                )
+                ideal_share_pct = clamp(
+                    100.0 * imported / provider_export_interval_kwh, 0.0, 100.0
+                )
 
     elif operating_mode == MODE_EXPORT_ONLY:
         assert provider_export is not None
         provider_export_source_type = EXPORT_TYPE_MEASURED
         if provider_export > 0:
-            effective_allocation_pct = 100.0 * shared / provider_export
-            required_share_pct = 100.0 * imported / provider_export
-            ideal_share_pct = clamp(required_share_pct, 0.0, 100.0)
+            effective_allocation_pct = finite_percentage(shared, provider_export)
+            required_share_pct = finite_percentage(imported, provider_export)
+            ideal_share_pct = clamp(100.0 * imported / provider_export, 0.0, 100.0)
 
     elif operating_mode == MODE_EXPORT_AND_PERCENTAGE:
         assert provider_export is not None and fixed_percentage is not None
+        fixed_percentage = normalize_allocation_percentage(fixed_percentage)
         provider_export_source_type = EXPORT_TYPE_MEASURED
         expected_shared_kwh = provider_export * fixed_percentage / 100.0
         allocation_difference_kwh = shared - expected_shared_kwh
-        if expected_shared_kwh > 0:
-            allocation_difference_pct = (
-                100.0 * abs(allocation_difference_kwh) / expected_shared_kwh
-            )
+        allocation_difference_pct = finite_percentage(
+            abs(allocation_difference_kwh), expected_shared_kwh
+        )
         if provider_export > 0:
-            effective_allocation_pct = 100.0 * shared / provider_export
-            required_share_pct = 100.0 * imported / provider_export
-            ideal_share_pct = clamp(required_share_pct, 0.0, 100.0)
+            effective_allocation_pct = finite_percentage(shared, provider_export)
+            required_share_pct = finite_percentage(imported, provider_export)
+            ideal_share_pct = clamp(100.0 * imported / provider_export, 0.0, 100.0)
 
     return {
         "used_shared_kwh": used_shared_kwh,
@@ -796,10 +839,8 @@ def evaluate_reconciliation(
     - allocation_difference_pct <= tolerance_pct
     """
     difference_kwh = actual_shared_kwh - expected_shared_kwh
-    difference_pct: float | None = None
-    if expected_shared_kwh > 0:
-        difference_pct = 100.0 * abs(difference_kwh) / expected_shared_kwh
-    elif difference_kwh == 0:
+    difference_pct = finite_percentage(abs(difference_kwh), expected_shared_kwh)
+    if difference_pct is None and difference_kwh == 0:
         difference_pct = 0.0
 
     within_kwh = abs(difference_kwh) <= tolerance_kwh

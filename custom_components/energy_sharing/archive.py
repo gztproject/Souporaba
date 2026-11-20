@@ -249,16 +249,20 @@ class IntervalArchive:
         self.intervals.sort(key=lambda item: dt_util.as_utc(item.interval_end))
 
     async def async_save(self) -> None:
+        await self._async_save_intervals(self.intervals)
+
+    async def _async_save_intervals(self, intervals: list[ArchiveInterval]) -> None:
         await self._store.async_save(
             {
                 "version": ARCHIVE_STORAGE_VERSION,
-                "intervals": [interval.to_dict() for interval in self.intervals],
+                "intervals": [interval.to_dict() for interval in intervals],
             }
         )
 
     async def async_append(self, row: ArchiveInterval) -> None:
-        self.intervals = append_archive_interval(self.intervals, row)
-        await self.async_save()
+        intervals = append_archive_interval(self.intervals, row)
+        await self._async_save_intervals(intervals)
+        self.intervals = intervals
 
     def get_range(self, start: datetime, end: datetime) -> list[ArchiveInterval]:
         return intervals_in_range(self.intervals, start, end)

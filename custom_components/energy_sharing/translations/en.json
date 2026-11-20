@@ -25,7 +25,7 @@
       "source_unavailable": "The selected entity is unavailable.",
       "source_not_numeric": "The selected entity state is not a valid non-negative number.",
       "unsupported_energy_unit": "The selected entity uses an unsupported energy unit. Use Wh or kWh.",
-      "percentage_invalid": "The allocation percentage must be from 0 through 100. Use 0 to pause sharing for a month.",
+      "percentage_invalid": "The allocation percentage must be 0 or from 0.01 through 100. Use 0 to pause sharing for a month.",
       "percentage_or_export_required": "Configure a fixed allocation percentage and/or a provider total grid export source."
     },
     "abort": {
@@ -90,7 +90,7 @@
       }
     },
     "error": {
-      "percentage_invalid": "The allocation percentage must be from 0 through 100. Use 0 to pause sharing for a month.",
+      "percentage_invalid": "The allocation percentage must be 0 or from 0.01 through 100. Use 0 to pause sharing for a month.",
       "percentage_or_export_required": "Configure a fixed allocation percentage and/or a provider total grid export source."
     }
   },
@@ -242,6 +242,9 @@
     },
     "active_loads_not_configured": {
       "message": "No active loads are configured."
+    },
+    "percentage_invalid": {
+      "message": "The allocation percentage must be 0 or from 0.01 through 100. Use 0 to pause sharing for a month."
     }
   }
 }

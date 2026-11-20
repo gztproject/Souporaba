@@ -105,6 +105,9 @@ DEFAULT_RECONCILIATION_FAILURE_MODE: Final = RECONCILIATION_MODE_WARN
 # 100 kW continuous over one interval is beyond any residential sharing site.
 # Used only as a restore/glitch rail, not as a configured option.
 DEFAULT_MAX_PLAUSIBLE_INTERVAL_POWER_W: Final = 100_000.0
+# Percentages of an interval amount below 1 Wh are not reported: the ratio is
+# noise and, near zero, too large to store or record as statistics.
+MIN_MEASURABLE_ENERGY_KWH: Final = 0.001
 COUNTER_RESTORE_ABS_TOLERANCE_KWH: Final = 0.05
 COUNTER_RESTORE_REL_TOLERANCE: Final = 0.01
 DEFAULT_ACTIVE_LOADS: Final[list[dict[str, str | int | bool]]] = []
@@ -137,6 +140,9 @@ MIN_SOURCE_FRESHNESS_TOLERANCE: Final = 30
 MAX_SOURCE_FRESHNESS_TOLERANCE: Final = 3600
 # 0 pauses contractual sharing for a month (expected shared energy is 0).
 MIN_ALLOCATION_PERCENTAGE: Final = 0.0
+# Smallest non-zero contractual share (one 0.01 step). Settlement divides by the
+# share, so anything between 0 and this is rejected on input and treated as 0.
+MIN_NONZERO_ALLOCATION_PERCENTAGE: Final = 0.01
 # Share search must start above 0; a 0% trial has no expected energy to score.
 MIN_RECOMMENDED_ALLOCATION_PERCENTAGE: Final = 0.01
 MAX_ALLOCATION_PERCENTAGE: Final = 100.0
