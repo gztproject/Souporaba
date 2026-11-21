@@ -13,6 +13,7 @@ from typing import Any
 
 from homeassistant.const import UnitOfPower
 from homeassistant.core import CALLBACK_TYPE, Context, HomeAssistant, callback
+from homeassistant.exceptions import Unauthorized
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from homeassistant.util import dt as dt_util
 
@@ -274,8 +275,14 @@ class ActiveLoadController:
         if callable(notify):
             notify()
 
-    async def async_calibrate_loads(self) -> dict[str, int]:
-        """Sequentially learn baseline load power from real measurements."""
+    async def async_calibrate_loads(
+        self, context: Context | None = None
+    ) -> dict[str, int]:
+        """Sequentially learn baseline load power from real measurements.
+
+        Switch calls run as the user in ``context`` so Home Assistant checks
+        that user's permission on each switch.
+        """
         async with self._calibration_lock:
             self._calibration_in_progress = True
             self._notify_entity_update()
@@ -324,7 +331,10 @@ class ActiveLoadController:
                         )
                         if not load.switch_is_on:
                             await self._async_turn_on_load(
-                                load, reason="calibration", force=True
+                                load,
+                                reason="calibration",
+                                force=True,
+                                parent_context=context,
                             )
                             started_by_calibration = True
                             waited_for_on = 0
@@ -391,6 +401,8 @@ class ActiveLoadController:
                             and previous_estimate != load.estimated_power_w
                         ):
                             self._notify_entity_update()
+                    except Unauthorized:
+                        raise
                     except Exception:  # pragma: no cover - defensive runtime guard
                         _LOGGER.warning(
                             "Active load calibration failed for %s",
@@ -399,9 +411,24 @@ class ActiveLoadController:
                         )
                     finally:
                         if started_by_calibration:
-                            await self._async_turn_off_load(
-                                load, reason="calibration_done", force=True
-                            )
+                            try:
+                                await self._async_turn_off_load(
+                                    load,
+                                    reason="calibration_done",
+                                    force=True,
+                                    parent_context=context,
+                                )
+                            except Unauthorized:
+                                # Never leave a load that calibration switched on
+                                # running because the caller lost access mid-run.
+                                _LOGGER.warning(
+                                    "Calibration caller may no longer turn off %s; "
+                                    "turning it off as the integration",
+                                    load.config.switch_entity_id,
+                                )
+                                await self._async_turn_off_load(
+                                    load, reason="calibration_done", force=True
+                                )
                             self._refresh_single_load_state(load)
 
                 result = {
@@ -1029,8 +1056,19 @@ class ActiveLoadController:
             remaining_wh -= assigned
             load.skip_reason = None
 
+    @staticmethod
+    def _switch_call_context(parent_context: Context | None) -> Context:
+        if parent_context is None:
+            return Context()
+        return Context(user_id=parent_context.user_id, parent_id=parent_context.id)
+
     async def _async_turn_on_load(
-        self, load: ActiveLoadRuntime, reason: str, *, force: bool = False
+        self,
+        load: ActiveLoadRuntime,
+        reason: str,
+        *,
+        force: bool = False,
+        parent_context: Context | None = None,
     ) -> None:
         if not self.control_enabled and not force:
             return
@@ -1038,7 +1076,7 @@ class ActiveLoadController:
         now = dt_util.now()
         if load.last_stop_ts and (now - load.last_stop_ts).total_seconds() < min_off:
             return
-        context = Context()
+        context = self._switch_call_context(parent_context)
         await self.hass.services.async_call(
             "switch",
             "turn_on",
@@ -1059,11 +1097,16 @@ class ActiveLoadController:
         )
 
     async def _async_turn_off_load(
-        self, load: ActiveLoadRuntime, reason: str, *, force: bool = False
+        self,
+        load: ActiveLoadRuntime,
+        reason: str,
+        *,
+        force: bool = False,
+        parent_context: Context | None = None,
     ) -> None:
         if not self.control_enabled and not force:
             return
-        context = Context()
+        context = self._switch_call_context(parent_context)
         await self.hass.services.async_call(
             "switch",
             "turn_off",

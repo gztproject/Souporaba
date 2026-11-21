@@ -10,6 +10,7 @@ from freezegun import freeze_time
 from homeassistant.const import UnitOfEnergy
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import device_registry as dr
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -803,10 +804,14 @@ async def test_reset_totals_service_works_without_call_target(
     manager = setup_percentage_only.runtime_data.manager
     manager.data.cumulative_unused = 12.3
     manager.data.cumulative_shared_energy = 411.6
+    device = dr.async_get(hass).async_get_device(
+        identifiers={(DOMAIN, setup_percentage_only.entry_id)}
+    )
+    assert device is not None
     await hass.services.async_call(
         DOMAIN,
         SERVICE_RESET_TOTALS,
-        {SERVICE_CONFIRM: True},
+        {SERVICE_CONFIRM: True, "device_id": device.id},
         blocking=True,
     )
     assert manager.data.cumulative_unused == 0.0
