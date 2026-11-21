@@ -237,6 +237,9 @@
     "confirmation_required": {
       "message": "Pred ponastavitvijo seštevkov vklopite Potrdi ponastavitev."
     },
+    "device_required": {
+      "message": "Za to dejanje izberite napravo Energy Sharing."
+    },
     "config_entry_not_found": {
       "message": "Za to dejanje ni bilo mogoče najti naprave Energy Sharing."
     },

@@ -24,6 +24,11 @@ Set **Fixed allocation percentage** to **0** to pause sharing for a month (expec
 - Skip physically impossible interval jumps (above 100 kW continuous).
 - Count missed intervals once (no extra +1 on the failure record).
 
+### Security
+
+- Energy Sharing actions (`process_now`, `reset_totals`, `reinitialize_baseline`, `calibrate_loads`, `export_analysis_pack`) are admin-only for signed-in users and require a device target; they no longer fall back to the first Energy Sharing instance. **Breaking:** add `target: device_id:` to any automation or script that calls them without one. Calls with no user, such as triggered automations, are not subject to the admin check.
+- Calibration (action and device button) switches loads as the calling user, so Home Assistant checks that user's switch permissions.
+
 A brief `0` flash on a mirrored shared-energy counter was treated as a real meter reset in rc.2; the restored total was then accumulated as energy (~411.6 kWh of fake shared / unused on the Trata soak). If you ran **rc.2 or earlier** through that soak and have not already reset, **reset integration totals** so those cumulatives start clean. Not required if you already reset on rc.3.
 
 ### After upgrade from rc.2 or earlier: reset totals
@@ -37,7 +42,7 @@ This does **not** change Oddajnik/Prejemnik source meters. It does **not** reini
 1. Update to this release and **restart Home Assistant**.
 2. Go to **Developer tools → Actions**.
 3. Choose **Energy Sharing: Reset totals**.
-4. Under **Targets**, select the Energy Sharing device (for example *Souporaba Trata*). Skip this if you have only one Energy Sharing instance.
+4. Under **Targets**, select the Energy Sharing device (for example *Souporaba Trata*). The target is required, even with a single Energy Sharing instance.
 5. Turn on **Confirm reset**.
 6. **Perform action**.
 

@@ -237,6 +237,9 @@
     "confirmation_required": {
       "message": "Turn on Confirm reset before resetting totals."
     },
+    "device_required": {
+      "message": "Select the Energy Sharing device for this action."
+    },
     "config_entry_not_found": {
       "message": "Could not find the Energy Sharing device for this action."
     },

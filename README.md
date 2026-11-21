@@ -139,6 +139,8 @@ Actual implementation always uses measured power values from sensors; these nomi
 
 ## Services
 
+These actions are admin-only: a call made as a signed-in non-admin user is rejected, including a script that user starts. Calls with no user, such as triggered automations, still run. Every call must target the Energy Sharing device (`target: device_id: ...`); a call without one is rejected rather than applied to an arbitrary instance. Calibration switches loads on and off as the calling user, so that user also needs permission to control the configured switches.
+
 - `energy_sharing.process_now` — process the latest eligible boundary
 - `energy_sharing.reset_totals` — reset integration-owned cumulative totals (requires `confirm: true`)
 - `energy_sharing.reinitialize_baseline` — record current source totals as a fresh baseline

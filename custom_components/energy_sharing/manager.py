@@ -4,18 +4,26 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import (
     CALLBACK_TYPE,
+    Context,
     HomeAssistant,
+    ServiceCall,
     SupportsResponse,
     callback,
 )
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import (
+    HomeAssistantError,
+    ServiceValidationError,
+    Unauthorized,
+    UnknownUser,
+)
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.event import (
     async_call_later,
@@ -240,6 +248,29 @@ def _service_error(key: str) -> HomeAssistantError:
         translation_domain=DOMAIN,
         translation_key=key,
     )
+
+
+def _admin_only(
+    hass: HomeAssistant, handler: Callable[[ServiceCall], Awaitable[Any]]
+) -> Callable[[ServiceCall], Awaitable[Any]]:
+    """Reject signed-in non-admin callers before ``handler`` runs.
+
+    Mirrors ``homeassistant.helpers.service.async_register_admin_service``,
+    which on supported cores can neither return a service response nor accept
+    a device target with its default schema. Calls without a user, such as
+    automations and scripts, are allowed.
+    """
+
+    async def _checked(call: ServiceCall) -> Any:
+        if call.context.user_id:
+            user = await hass.auth.async_get_user(call.context.user_id)
+            if user is None:
+                raise UnknownUser(context=call.context)
+            if not user.is_admin:
+                raise Unauthorized(context=call.context)
+        return await handler(call)
+
+    return _checked
 
 
 class EnergySharingManager:
@@ -518,28 +549,32 @@ class EnergySharingManager:
             entry = await self._resolve_entry_from_service(call)
             if entry is None:
                 raise _service_error("config_entry_not_found")
-            result = await entry.runtime_data.manager.async_calibrate_active_loads()
+            result = await entry.runtime_data.manager.async_calibrate_active_loads(
+                context=call.context
+            )
             _LOGGER.info("calibrate_loads result for %s: %s", entry.title, result)
 
         if not self.hass.services.has_service(DOMAIN, SERVICE_PROCESS_NOW):
             self.hass.services.async_register(
-                DOMAIN, SERVICE_PROCESS_NOW, process_now_service
+                DOMAIN, SERVICE_PROCESS_NOW, _admin_only(self.hass, process_now_service)
             )
         if not self.hass.services.has_service(DOMAIN, SERVICE_RESET_TOTALS):
             self.hass.services.async_register(
-                DOMAIN, SERVICE_RESET_TOTALS, reset_totals_service
+                DOMAIN,
+                SERVICE_RESET_TOTALS,
+                _admin_only(self.hass, reset_totals_service),
             )
         if not self.hass.services.has_service(DOMAIN, SERVICE_REINITIALIZE_BASELINE):
             self.hass.services.async_register(
                 DOMAIN,
                 SERVICE_REINITIALIZE_BASELINE,
-                reinitialize_baseline_service,
+                _admin_only(self.hass, reinitialize_baseline_service),
             )
         if not self.hass.services.has_service(DOMAIN, SERVICE_CALIBRATE_LOADS):
             self.hass.services.async_register(
                 DOMAIN,
                 SERVICE_CALIBRATE_LOADS,
-                calibrate_loads_service,
+                _admin_only(self.hass, calibrate_loads_service),
             )
 
         async def export_analysis_pack_service(call: Any) -> dict[str, Any]:
@@ -560,16 +595,26 @@ class EnergySharingManager:
             self.hass.services.async_register(
                 DOMAIN,
                 SERVICE_EXPORT_ANALYSIS_PACK,
-                export_analysis_pack_service,
+                _admin_only(self.hass, export_analysis_pack_service),
                 supports_response=SupportsResponse.OPTIONAL,
             )
 
     async def _resolve_entry_from_service(
         self, call: Any
     ) -> EnergySharingConfigEntry | None:
+        """Return the loaded entry for the call's device target.
+
+        The target is required: these actions change or export one household's
+        settlement record, so a call that names no device must not fall back to
+        whichever entry registered the service.
+        """
         device_ids = service_call_device_ids(call)
         if not device_ids:
-            return self.entry
+            raise ServiceValidationError(
+                "device_required",
+                translation_domain=DOMAIN,
+                translation_key="device_required",
+            )
 
         device_registry = dr.async_get(self.hass)
         for device_id in device_ids:
@@ -578,7 +623,11 @@ class EnergySharingManager:
                 continue
             for entry_id in device.config_entries:
                 entry = self.hass.config_entries.async_get_entry(entry_id)
-                if entry and entry.domain == DOMAIN:
+                if (
+                    entry
+                    and entry.domain == DOMAIN
+                    and entry.state is ConfigEntryState.LOADED
+                ):
                     return entry
         return None
 
@@ -670,7 +719,9 @@ class EnergySharingManager:
             self._notify_update()
             return "baseline_reinitialized"
 
-    async def async_calibrate_active_loads(self) -> dict[str, int]:
+    async def async_calibrate_active_loads(
+        self, context: Context | None = None
+    ) -> dict[str, int]:
         if (
             self._active_load_controller is None
             or not self._active_load_controller.has_loads
@@ -678,7 +729,9 @@ class EnergySharingManager:
             raise HomeAssistantError("active_loads_not_configured")
         self._notify_update()
         try:
-            return await self._active_load_controller.async_calibrate_loads()
+            return await self._active_load_controller.async_calibrate_loads(
+                context=context
+            )
         finally:
             self._notify_update()
 

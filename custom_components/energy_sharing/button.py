@@ -97,4 +97,4 @@ class EnergySharingButton(ButtonEntity):
         }
 
     async def async_press(self) -> None:
-        await self._manager.async_calibrate_active_loads()
+        await self._manager.async_calibrate_active_loads(context=self._context)
