@@ -8,6 +8,7 @@ from typing import Any
 from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.const import PERCENTAGE, EntityCategory
 from homeassistant.core import callback
+from homeassistant.exceptions import Unauthorized, UnknownUser
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -81,6 +82,19 @@ class FixedAllocationPercentageNumber(NumberEntity):
         self._attr_available = True
 
     async def async_set_native_value(self, value: float) -> None:
+        # Capture the caller before awaiting: a concurrent service call can
+        # replace the entity context while the user lookup is pending.
+        context = self._context
+        if context is not None and context.user_id:
+            user = await self.hass.auth.async_get_user(context.user_id)
+            if user is None:
+                raise UnknownUser(context=context)
+            if not user.is_admin:
+                raise Unauthorized(
+                    context=context,
+                    entity_id=self.entity_id,
+                    config_entry_id=self._entry.entry_id,
+                )
         options = {
             **self._entry.options,
             CONF_FIXED_ALLOCATION_PERCENTAGE: float(value),
