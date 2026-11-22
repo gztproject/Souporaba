@@ -159,7 +159,7 @@ Oddajnik (Provider) export source, fixed percentage, timing, tolerances, timesta
 
 ## Monthly allocation and analysis export
 
-Change the contractual % each month with the **Fixed allocation percentage** number on the integration device. That writes `fixed_allocation_percentage` in options immediately. **0%** pauses sharing for the month: expected shared energy is 0, reconciliation treats received shared energy against that zero, and active-load control does not soak surplus until you set a share above 0 again.
+Change the contractual % each month with the **Fixed allocation percentage** number on the integration device. That writes `fixed_allocation_percentage` in options immediately. Only Home Assistant administrators can change it; `number.set_value` calls from non-admin users are refused. **0%** pauses sharing for the month: expected shared energy is 0, reconciliation treats received shared energy against that zero, and active-load control does not soak surplus until you set a share above 0 again.
 
 Use `energy_sharing.export_analysis_pack` to dump a selected period:
 
